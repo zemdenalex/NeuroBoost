@@ -31,6 +31,16 @@ export type CreateTaskBody = {
   estimatedMinutes?: number;
 };
 
+export type UpdateTaskBody = {
+  title?: string;
+  description?: string;
+  priority?: number;
+  status?: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED' | 'SCHEDULED';
+  tags?: string[];
+  dueDate?: string;
+  estimatedMinutes?: number;
+};
+
 export type ReflectionBody = {
   focusPct: number; // 0-100
   goalPct: number;  // 0-100
@@ -102,7 +112,7 @@ export async function deleteEvent(id: string): Promise<void> {
   }
 }
 
-// --- New Task API ---
+// --- Task API ---
 export async function getTasks(status?: string, priority?: number): Promise<any[]> {
   const params = new URLSearchParams();
   if (status) params.append('status', status);
@@ -127,7 +137,7 @@ export async function createTask(body: CreateTaskBody): Promise<{ id: string; ta
   return r.json();
 }
 
-export async function updateTask(id: string, updates: Partial<CreateTaskBody>): Promise<void> {
+export async function updateTask(id: string, updates: UpdateTaskBody): Promise<void> {
   const r = await fetch(`${API_BASE}/tasks/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
