@@ -1,4 +1,3 @@
-// apps/web/src/App.tsx - Fixed with task sidebar open by default
 import { useEffect, useState } from 'react';
 import { WeekGrid } from './pages/WeekGrid';
 import { MonthlyView } from './pages/MonthlyView';
@@ -8,7 +7,7 @@ import NudgeBadge from './components/NudgeBadge';
 import DbBadge from './components/DbBadge';
 import StatsBadge from './components/StatsBadge';
 import type { NbEvent, Task, CreateEventBody } from './types';
-import { getEvents, patchEventUTC, deleteEvent, createEventUTC, API_BASE } from './api';
+import { getEvents, patchEventUTC, deleteEvent, createEventUTC, API_BASE, updateTask } from './api';
 
 type Range = { start: Date; end: Date } | null;
 type ViewMode = 'week' | 'month';
@@ -20,7 +19,7 @@ export default function App() {
   const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
   const [range, setRange] = useState<Range>(null);
   const [draft, setDraft] = useState<NbEvent | null>(null);
-  const [taskSidebarOpen, setTaskSidebarOpen] = useState(true); // FIXED: Default to open
+  const [taskSidebarOpen, setTaskSidebarOpen] = useState(true); // Default open
   const [showExportPanel, setShowExportPanel] = useState(false);
 
   function weekRangeUtc(weekOffset: number = 0): { start: string; end: string } {
@@ -37,40 +36,28 @@ export default function App() {
   }
 
   function monthRangeUtc(date: Date): { start: string; end: string } {
-    // Get start of month
     const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
-    
-    // Get calendar start (include prev month days to fill first week)
     const calendarStart = new Date(monthStart);
-    const startDayOfWeek = (monthStart.getDay() + 6) % 7; // Monday = 0
+    const startDayOfWeek = (monthStart.getDay() + 6) % 7;
     calendarStart.setDate(calendarStart.getDate() - startDayOfWeek);
-    
-    // Get end of month  
     const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-    
-    // Get calendar end (include next month days to fill last week)
     const calendarEnd = new Date(monthEnd);
     const endDayOfWeek = (monthEnd.getDay() + 6) % 7;
     calendarEnd.setDate(calendarEnd.getDate() + (6 - endDayOfWeek));
     calendarEnd.setHours(23, 59, 59, 999);
-    
-    // Convert to UTC
     const startUtc = new Date(calendarStart.getTime() - 3 * 60 * 60 * 1000);
     const endUtc = new Date(calendarEnd.getTime() - 3 * 60 * 60 * 1000);
-    
     return { start: startUtc.toISOString(), end: endUtc.toISOString() };
   }
 
   async function refresh() {
     try {
       let start, end;
-      
       if (viewMode === 'week') {
         ({ start, end } = weekRangeUtc(currentWeekOffset));
       } else {
         ({ start, end } = monthRangeUtc(currentMonthDate));
       }
-      
       const data = await getEvents(start, end);
       setEvents(data);
     } catch (error) {
@@ -119,6 +106,8 @@ export default function App() {
   async function onDelete(id: string) { 
     try {
       await deleteEvent(id); 
+      setDraft(null);
+      setRange(null);
       refresh(); 
     } catch (error) {
       console.error('Failed to delete event:', error);
@@ -133,19 +122,33 @@ export default function App() {
     setCurrentMonthDate(newDate);
   }
 
+  // FIXED: Navigate to week containing clicked day
   function onDayClick(date: Date) {
-    // Switch to week view and navigate to the clicked day
-    const clickedWeekOffset = Math.floor(
-      (date.getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000)
-    );
-    setCurrentWeekOffset(Math.round(clickedWeekOffset));
+    // Calculate which week offset contains this date
+    const clickedTime = date.getTime();
+    const nowUtcMs = Date.now();
+    const nowMsk = new Date(nowUtcMs + 3 * 60 * 60 * 1000);
+    const mondayIndex = (nowMsk.getUTCDay() + 6) % 7;
+    const todayMskMidnight = new Date(nowMsk);
+    todayMskMidnight.setUTCHours(0, 0, 0, 0);
+    const currentMondayMs = todayMskMidnight.getTime() - mondayIndex * 86400000;
+    
+    // Find Monday of the clicked date's week
+    const clickedMsk = new Date(clickedTime + 3 * 60 * 60 * 1000);
+    const clickedMondayIndex = (clickedMsk.getUTCDay() + 6) % 7;
+    const clickedMskMidnight = new Date(clickedMsk);
+    clickedMskMidnight.setUTCHours(0, 0, 0, 0);
+    const clickedMondayMs = clickedMskMidnight.getTime() - clickedMondayIndex * 86400000;
+    
+    const weekOffset = Math.round((clickedMondayMs - currentMondayMs) / (7 * 86400000));
+    setCurrentWeekOffset(weekOffset);
     setViewMode('week');
   }
 
-  // Handle drag-to-schedule from task sidebar
+  // FIXED: Handle drag-to-schedule with proper validation
   async function onDragTaskToSchedule(task: Task, startTime: Date) {
     try {
-      const estimatedDuration = task.estimatedMinutes || 60; // Default 1 hour
+      const estimatedDuration = task.estimatedMinutes || 60;
       const endTime = new Date(startTime.getTime() + estimatedDuration * 60 * 1000);
 
       const eventData: CreateEventBody = {
@@ -156,27 +159,26 @@ export default function App() {
         description: task.description,
         tags: [...(task.tags || []), 'scheduled'],
         reminders: [{
-          minutesBefore: 5,
-          channel: 'TELEGRAM'
+          minutesBefore: estimatedDuration <= 30 ? 3 : estimatedDuration <= 60 ? 5 : 15,
+          channel: 'TELEGRAM' as const
         }]
       };
 
       await createEventUTC(eventData);
-
-      // Update task status to SCHEDULED
-      // This would need a task update API call
+      
+      // Update task status
+      await updateTask(task.id, { status: 'SCHEDULED' });
+      
       refresh();
     } catch (error) {
       console.error('Failed to schedule task:', error);
-      alert('Failed to schedule task');
+      alert('Failed to schedule task: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   }
 
-  // Handle multi-day event creation in monthly view
   function onCreateMultiDay(startDate: Date, endDate: Date) {
     const start = new Date(startDate);
     start.setHours(0, 0, 0, 0);
-    
     const end = new Date(endDate);
     end.setHours(23, 59, 59, 999);
     
@@ -188,8 +190,20 @@ export default function App() {
     });
   }
 
+  // Handle Escape key to close editor
+  useEffect(() => {
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key === 'Escape' && (range || draft)) {
+        setRange(null);
+        setDraft(null);
+      }
+    }
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [range, draft]);
+
   const currentViewLabel = viewMode === 'week' 
-    ? `Неделя ${currentWeekOffset === 0 ? '(текущая)' : currentWeekOffset > 0 ? `+${currentWeekOffset}` : currentWeekOffset}`
+    ? `Week ${currentWeekOffset === 0 ? '(current)' : currentWeekOffset > 0 ? `+${currentWeekOffset}` : currentWeekOffset}`
     : `${currentMonthDate.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}`;
 
   return (
@@ -318,7 +332,6 @@ export default function App() {
               onDayClick={onDayClick}
               onEventClick={onSelect}
               onCreate={(date) => {
-                // Create an all-day event for the clicked date
                 const startUtc = new Date(date);
                 startUtc.setHours(0, 0, 0, 0);
                 const endUtc = new Date(date);
@@ -330,25 +343,36 @@ export default function App() {
                   allDay: true
                 });
               }}
-              onCreateMultiDay={onCreateMultiDay} // FIXED: Add multi-day creation
+              onCreateMultiDay={onCreateMultiDay}
               selectedEventId={draft?.id}
             />
           )}
         </main>
       </div>
 
-      {/* Event Editor Modal */}
+      {/* Event Editor Modal - Click outside to close */}
       {(range || draft) && (
-        <Editor
-          range={range}
-          draft={draft}
-          onClose={() => { setRange(null); setDraft(null); }}
-          onCreated={() => { setRange(null); refresh(); }}
-          onPatched={() => { setDraft(null); refresh(); }}
-        />
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setRange(null);
+              setDraft(null);
+            }
+          }}
+        >
+          <Editor
+            range={range}
+            draft={draft}
+            onClose={() => { setRange(null); setDraft(null); }}
+            onCreated={() => { setRange(null); refresh(); }}
+            onPatched={() => { setDraft(null); refresh(); }}
+            onDelete={onDelete}
+          />
+        </div>
       )}
       
-      {/* Help Overlay (toggleable) */}
+      {/* Help Overlay */}
       <div className="fixed bottom-4 right-4">
         <details className="bg-zinc-800 border border-zinc-700 rounded p-2 text-xs">
           <summary className="cursor-pointer text-zinc-400 hover:text-white">
@@ -357,24 +381,22 @@ export default function App() {
           <div className="mt-2 space-y-1 text-zinc-300 w-64">
             <div><strong>Week View:</strong></div>
             <div>• Drag empty: create event</div>
-            <div>• Drag event: move within day</div>
-            <div>• Ctrl+Drag event: move to other day</div>
-            <div>• Drag across columns: multi-day event</div>
-            <div>• Top lane: all-day events</div>
-            <div>• ←/→: previous/next week</div>
-            <div>• +/-: nudge selected event ±15min</div>
-            <div>• Enter: edit selected event</div>
-            <div>• Del: delete selected event</div>
+            <div>• Drag event: move (Ctrl for cross-day)</div>
+            <div>• Drag in all-day lane: multi-day event</div>
+            <div>• Drag task from sidebar: schedule</div>
+            <div>• +/-: nudge selected ±15min</div>
+            <div>• Enter: edit selected</div>
+            <div>• Del: delete selected</div>
             
             <div className="pt-2"><strong>Month View:</strong></div>
-            <div>• Click day: switch to week view</div>
-            <div>• Double-click day: create all-day event</div>
+            <div>• Click day: go to week view</div>
+            <div>• Double-click: create all-day event</div>
             <div>• Drag across days: multi-day event</div>
-            <div>• Click event: edit event</div>
             
-            <div className="pt-2"><strong>Tasks:</strong></div>
-            <div>• Drag task to calendar to schedule</div>
-            <div>• Tasks sidebar opens by default</div>
+            <div className="pt-2"><strong>Editor:</strong></div>
+            <div>• Escape or click outside: cancel</div>
+            <div>• Ctrl+Enter: save</div>
+            <div>• Delete button: remove event</div>
           </div>
         </details>
       </div>
