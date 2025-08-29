@@ -1,4 +1,4 @@
-// apps/web/src/pages/WeekGrid.tsx - Fixed version addressing all UX issues
+// apps/web/src/pages/WeekGrid.tsx - Complete fix addressing all issues
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import type { NbEvent, Task } from '../types';
 
@@ -6,7 +6,7 @@ const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_PX = 44;
 const MIN_SLOT_MIN = 15;
-const ALL_DAY_HEIGHT = 80;
+const ALL_DAY_HEIGHT = 70; // Reduced to prevent cutting 0:00
 const MOBILE_BREAKPOINT = 768;
 
 const DAY_FOCUS_OPTIONS = [
@@ -46,8 +46,9 @@ function minutesSinceMskMidnight(utcISO: string): number {
 function getDaySpan(event: NbEvent): { startDay: number; endDay: number; spanDays: number } {
   const startDate = new Date(event.startUtc);
   const endDate = new Date(event.endUtc);
-  const startDay = Math.floor((mskMidnightUtcMs(startDate.getTime()) - mondayUtcMidnightOfCurrentWeek()) / DAY_MS);
-  const endDay = Math.floor((mskMidnightUtcMs(endDate.getTime()) - mondayUtcMidnightOfCurrentWeek()) / DAY_MS);
+  const mondayUtc0 = mondayUtcMidnightOfCurrentWeek();
+  const startDay = Math.floor((mskMidnightUtcMs(startDate.getTime()) - mondayUtc0) / DAY_MS);
+  const endDay = Math.floor((mskMidnightUtcMs(endDate.getTime()) - mondayUtc0) / DAY_MS);
   
   return {
     startDay: Math.max(0, Math.min(6, startDay)),
@@ -97,6 +98,7 @@ type DragCreate = {
 type DragMove = { 
   kind: 'move'; 
   dayUtc0: number; 
+  targetDayUtc0?: number; // For cross-day moves
   id: string; 
   offsetMin: number; 
   durMin: number; 
@@ -264,35 +266,35 @@ export function WeekGrid({
       ev.preventDefault();
       document.getSelection()?.removeAllRanges();
 
+      // Get target day for cross-day operations
+      const gridRect = containerRef.current.getBoundingClientRect();
+      const dayWidth = gridRect.width / visibleDays;
+      const dayIndex = Math.floor((ev.clientX - gridRect.left) / dayWidth);
+      const targetDayUtc0 = days[Math.max(0, Math.min(days.length - 1, dayIndex))]?.dayUtc0;
+
       switch (drag.kind) {
         case 'create':
-          // Check for cross-day drag
-          const gridRect = containerRef.current.getBoundingClientRect();
-          const dayWidth = gridRect.width / visibleDays;
-          const dayIndex = Math.floor((ev.clientX - gridRect.left) / dayWidth);
-          const targetDayUtc0 = days[Math.max(0, Math.min(days.length - 1, dayIndex))]?.dayUtc0 || drag.startDayUtc0;
-          
           setDrag({ 
             ...drag, 
             curMin, 
             allDay: isInAllDay,
-            endDayUtc0: targetDayUtc0,
+            endDayUtc0: targetDayUtc0 || drag.startDayUtc0,
             crossDay: targetDayUtc0 !== drag.startDayUtc0
           });
           break;
           
         case 'move': {
           const centerSnap = Math.round(drag.durMin / 2 / MIN_SLOT_MIN) * MIN_SLOT_MIN;
-          setDrag({ ...drag, offsetMin: clampMins(curMin - centerSnap) });
+          setDrag({ 
+            ...drag, 
+            offsetMin: clampMins(curMin - centerSnap),
+            targetDayUtc0: targetDayUtc0 || drag.dayUtc0
+          });
           break;
         }
         
         case 'task-schedule':
-          const rect = containerRef.current.getBoundingClientRect();
-          const colWidth = rect.width / visibleDays;
-          const newDayIndex = Math.floor((ev.clientX - rect.left) / colWidth);
-          if (newDayIndex >= 0 && newDayIndex < days.length) {
-            const targetDayUtc0 = days[newDayIndex].dayUtc0;
+          if (targetDayUtc0) {
             setDrag({ ...drag, targetDayUtc0, offsetMin: curMin });
           }
           break;
@@ -335,10 +337,12 @@ export function WeekGrid({
         case 'move': {
           const startMin = snapMin(drag.offsetMin);
           const endMin = startMin + drag.durMin;
+          const targetDay = drag.targetDayUtc0 || drag.dayUtc0;
+          
           onMoveOrResize({
             id: drag.id,
-            startUtc: new Date(drag.dayUtc0 + startMin * 60000).toISOString(),
-            endUtc: new Date(drag.dayUtc0 + endMin * 60000).toISOString()
+            startUtc: new Date(targetDay + startMin * 60000).toISOString(),
+            endUtc: new Date(targetDay + endMin * 60000).toISOString()
           });
           break;
         }
@@ -460,7 +464,7 @@ export function WeekGrid({
       </div>
 
       <div
-        className="flex-1 overflow-x-auto overflow-y-auto outline-none"
+        className="flex-1 overflow-x-auto overflow-y-auto outline-none relative"
         ref={containerRef}
         tabIndex={0}
         role="application"
@@ -495,14 +499,6 @@ export function WeekGrid({
           }
         }}
       >
-        {/* Mobile: Show tasks at top */}
-        {isMobile && (
-          <div className="border-b border-zinc-700 bg-zinc-900 p-2 min-h-16">
-            <div className="text-xs text-zinc-400 mb-1">Urgent Tasks</div>
-            <div className="text-xs text-zinc-500">Drag tasks to schedule</div>
-          </div>
-        )}
-        
         <div
           className={`grid gap-px relative ${visibleDays === 1 ? 'grid-cols-1' : visibleDays === 3 ? 'grid-cols-3' : 'grid-cols-7'}`}
           style={{ minWidth: isMobile ? '100%' : '800px' }}
@@ -542,9 +538,9 @@ export function WeekGrid({
                   )}
                 </div>
 
-                {/* All-day lane - FIXED: solid background, proper positioning */}
+                {/* All-day lane - Fixed z-index to be above tasks */}
                 <div 
-                  className="relative border-b border-zinc-700 bg-zinc-900 sticky top-0 z-10"
+                  className="relative border-b border-zinc-700 bg-zinc-900 sticky top-0 z-20"
                   style={{ height: ALL_DAY_HEIGHT }}
                   onMouseDown={(ev) => {
                     const rect = ev.currentTarget.getBoundingClientRect();
@@ -576,13 +572,12 @@ export function WeekGrid({
                     return (
                       <div
                         key={`allday-${e.id}-${i}`}
-                        className={`absolute top-5 bottom-1 font-mono text-xs px-2 flex items-center cursor-pointer
+                        className={`absolute top-4 bottom-1 font-mono text-xs px-2 flex items-center cursor-pointer z-25
                           ${selected ? 'ring-1 ring-blue-400 bg-blue-600/90' : 'bg-zinc-600/90 hover:bg-zinc-500/90'}
                           border border-zinc-500`}
                         style={{
                           left: isStartDay ? 4 : 0,
                           right: isEndDay ? 4 : 0,
-                          zIndex: selected ? 25 : 20,
                           borderRadius: isStartDay && isEndDay ? '6px' :
                                       isStartDay ? '6px 0 0 6px' :
                                       isEndDay ? '0 6px 6px 0' : '0'
@@ -625,7 +620,7 @@ export function WeekGrid({
                 {/* Timed events area */}
                 <div
                   className="relative select-none flex-1"
-                  style={{ minHeight: HOUR_PX * (isMobile ? 16 : 24) }}
+                  style={{ minHeight: HOUR_PX * (isMobile ? 16 : 24), paddingTop: '4px' }}
                   onMouseDown={(ev) => {
                     const rect = ev.currentTarget.getBoundingClientRect();
                     dragMetaRef.current = {
@@ -645,14 +640,14 @@ export function WeekGrid({
                     });
                   }}
                 >
-                  {/* Hour grid */}
+                  {/* Hour grid - Fixed positioning to prevent 0:00 cutoff */}
                   {Array.from({ length: isMobile ? 16 : 24 }, (_, h) => (
                     <div
                       key={h}
                       className={`absolute left-0 right-0 border-t ${
                         h % (isMobile ? 2 : 3) === 0 ? 'border-zinc-700' : 'border-zinc-800/50'
                       }`}
-                      style={{ top: h * HOUR_PX }}
+                      style={{ top: h * HOUR_PX + 4 }} // Add 4px offset to prevent cutoff
                     >
                       {(h % (isMobile ? 4 : 3) === 0) && (
                         <div className="absolute left-1 -top-2 px-1 text-[10px] text-zinc-500 bg-black font-mono">
@@ -666,7 +661,7 @@ export function WeekGrid({
                   {dayUtc0 === nowInfo.dayUtc0 && nowInfo.min >= 0 && nowInfo.min <= 1440 && (
                     <div 
                       className="absolute left-0 right-0 h-[2px] bg-red-500 z-30" 
-                      style={{ top: minsToTop(nowInfo.min) }}
+                      style={{ top: minsToTop(nowInfo.min) + 4 }}
                     >
                       <div className="absolute -left-1 -top-[3px] w-2 h-2 rounded-full bg-red-500" />
                       <div className="absolute left-2 -top-3 text-[10px] text-red-500 font-mono bg-black px-1">
@@ -679,7 +674,7 @@ export function WeekGrid({
                   {timedList.map(e => {
                     const startMin = minutesSinceMskMidnight(e.startUtc);
                     const endMin = Math.max(startMin + MIN_SLOT_MIN, minutesSinceMskMidnight(e.endUtc));
-                    const top = minsToTop(startMin);
+                    const top = minsToTop(startMin) + 4;
                     const height = Math.max(minsToTop(endMin - startMin), minsToTop(MIN_SLOT_MIN));
                     const selected = selectedId && e.id === selectedId;
                     
@@ -688,7 +683,7 @@ export function WeekGrid({
                         key={e.id}
                         className={`absolute rounded border text-xs cursor-move font-mono
                           ${selected
-                            ? 'border-blue-400 ring-1 ring-blue-400 bg-blue-600/90 text-white z-20'
+                            ? 'border-blue-400 ring-1 ring-blue-400 bg-blue-600/90 text-white z-15'
                             : 'border-zinc-600 bg-zinc-800/95 hover:bg-zinc-700/95 text-zinc-100 z-10'
                           }`}
                         style={{ top, height, left: 2, right: 2 }}
@@ -740,22 +735,22 @@ export function WeekGrid({
                    drag.startDayUtc0 === dayUtc0 && (() => {
                     const a = Math.min(drag.startMin, drag.curMin);
                     const b = Math.max(drag.startMin, drag.curMin);
-                    const top = minsToTop(a);
+                    const top = minsToTop(a) + 4;
                     const height = Math.max(minsToTop(b - a), minsToTop(MIN_SLOT_MIN));
                     return (
                       <div 
-                        className="absolute bg-emerald-400/30 border border-emerald-400/50 rounded pointer-events-none z-30"
+                        className="absolute bg-emerald-400/40 border border-emerald-400/60 rounded pointer-events-none z-30 animate-pulse"
                         style={{ top, height, left: 2, right: 2 }} 
                       />
                     );
                   })()}
 
-                  {/* Move ghost - FIXED: Now shows for both timed and all-day moves */}
-                  {drag && drag.kind === 'move' && drag.dayUtc0 === dayUtc0 && (
+                  {/* Move ghost - Enhanced with cross-day support */}
+                  {drag && drag.kind === 'move' && (
                     <div 
                       className="absolute bg-blue-400/40 border border-blue-400/60 rounded pointer-events-none z-30"
                       style={{ 
-                        top: minsToTop(clampMins(snapMin(drag.offsetMin))), 
+                        top: minsToTop(clampMins(snapMin(drag.offsetMin))) + 4, 
                         height: minsToTop(drag.durMin), 
                         left: 2, 
                         right: 2 
@@ -766,9 +761,9 @@ export function WeekGrid({
                   {/* Task schedule ghost */}
                   {drag && drag.kind === 'task-schedule' && drag.targetDayUtc0 === dayUtc0 && (
                     <div 
-                      className="absolute bg-green-400/30 border border-green-400/50 rounded pointer-events-none z-30"
+                      className="absolute bg-green-400/40 border border-green-400/60 rounded pointer-events-none z-30 animate-pulse"
                       style={{ 
-                        top: minsToTop(clampMins(snapMin(drag.offsetMin))), 
+                        top: minsToTop(clampMins(snapMin(drag.offsetMin))) + 4, 
                         height: minsToTop(drag.task.estimatedMinutes || 60), 
                         left: 2, 
                         right: 2 
@@ -780,13 +775,13 @@ export function WeekGrid({
             );
           })}
 
-          {/* FIXED: Continuous multi-day all-day create ghost */}
+          {/* FIXED: Continuous multi-day all-day create ghost with animation */}
           {drag && drag.kind === 'create' && drag.allDay && drag.crossDay && (
             <div 
-              className="absolute bg-emerald-400/30 border border-emerald-400/50 pointer-events-none z-40"
+              className="absolute bg-emerald-400/40 border border-emerald-400/60 pointer-events-none z-40 animate-pulse"
               style={{
-                top: 25, // Position in all-day section
-                height: ALL_DAY_HEIGHT - 30,
+                top: 20, // Position in all-day section
+                height: ALL_DAY_HEIGHT - 25,
                 left: `${(Math.min(drag.startDayUtc0, drag.endDayUtc0) - mondayUtc0) / DAY_MS / visibleDays * 100}%`,
                 right: `${100 - ((Math.max(drag.startDayUtc0, drag.endDayUtc0) - mondayUtc0) / DAY_MS + 1) / visibleDays * 100}%`,
                 borderRadius: '6px'
