@@ -1,227 +1,451 @@
-# NeuroBoost v0.2.1
+# NeuroBoost v0.3.0 - Complete Documentation
 
-Calendar-first personal assistant with Telegram bot integration. **Production-ready** with comprehensive logging and monitoring.
+A calendar-first personal assistant with focus on time management, task scheduling, and plan vs actual tracking. Built with monospace aesthetics and keyboard-first interactions.
 
-## Current Status: MVP Complete ✅
+## Table of Contents
+- [Core Features](#core-features)
+- [Web UI](#web-ui)
+- [API Reference](#api-reference)
+- [Database Schema](#database-schema)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+- [Technical Stack](#technical-stack)
 
-- ✅ **Enhanced API** - Express + Prisma with priority system, reflections, recurring events
-- ✅ **Task System** - Priorities 0-5 (Buffer→Emergency→ASAP→Must today→Deadline soon→If possible)
-- ✅ **Telegram Bot** - Inline keyboards, staged flows, quick notes, smart notifications
-- ✅ **Web UI** - Enhanced calendar with task sidebar, reflections, plan vs actual tracking
-- ✅ **Professional Logging** - Structured JSON logs with performance metrics
-- ✅ **Database Schema** - Full Prisma setup with recurring events, reminders, sessions
+## Core Features
 
-## Stack
+### Calendar System
+- **Week View** - 7-day grid with hourly slots (MSK timezone display, UTC storage)
+- **Month View** - Full month calendar with event previews
+- **All-Day Events** - Sticky top lane for all-day and multi-day events
+- **Multi-Day Events** - Drag across days to create spanning events
+- **Event Recurrence** - RRULE-based recurring events with exceptions
+- **Real-time Updates** - Current time indicator updates every 30 seconds
 
-* **Backend:** Node 20 + Express + Prisma 6 + PostgreSQL 16
-* **Frontend:** React 18 + TypeScript + Vite + Tailwind
-* **Bot:** Telegraf 4 with inline keyboards
-* **Database:** PostgreSQL with UTC timestamps, Moscow timezone UI
-* **Logging:** Structured JSON logs with automatic rotation
-* **Package Manager:** pnpm 10.14.x
-
-## Quick Start
-
-### Prerequisites
-- Node 20.15+
-- pnpm 10.14.x
-- PostgreSQL 16 (port 5433)
-- Telegram Bot Token
-
-### Installation
-
-```bash
-# Install dependencies
-pnpm install
-
-# Setup database
-cd apps/api
-pnpm prisma migrate dev --name init
-pnpm prisma generate
-```
-
-### Development
-
-```bash
-# Terminal 1: API Server
-cd apps/api
-pnpm dev
-# Logs: logs/api.log
-
-# Terminal 2: Telegram Bot  
-cd apps/bot
-# Edit .env with your TELEGRAM_BOT_TOKEN
-pnpm dev
-# Logs: logs/bot.log
-
-# Terminal 3: Web UI (optional)
-cd apps/web
-pnpm dev
-# http://localhost:5173
-
-# Terminal 4: View Logs
-.\view-logs.ps1 all -Watch
-```
-
-## Logging System
-
-Professional logging with performance metrics:
-
-```bash
-# View recent logs (PowerShell)
-.\view-logs.ps1 all          # All services, last 50 lines
-.\view-logs.ps1 api 100      # API logs, last 100 lines  
-.\view-logs.ps1 bot -Watch   # Follow bot logs in real-time
-.\view-logs.ps1 all -Errors  # Error logs only
-
-# Alternative (Node.js)
-node view-logs.mjs api 50    # API logs, last 50 lines
-```
-
-**Log Files:**
-- `logs/api.log` - API requests, database queries, performance metrics
-- `logs/bot.log` - User interactions, API calls, session management  
-- `logs/api.error.log` - API errors only
-- `logs/bot.error.log` - Bot errors only
-
-## API Endpoints
-
-**Base URL:** `http://localhost:3001`
-
-### Core Endpoints
-- `GET /health` - Health check with database status
-- `GET /events?start=ISO&end=ISO` - Get events (with recurring expansion)
-- `POST /events` - Create event with reminders
-- `PATCH /events/:id` - Update event
-- `DELETE /events/:id` - Delete event
-
-### Task Management  
-- `GET /tasks?status=TODO&priority=2` - Get tasks with filters
-- `POST /tasks` - Create task with priority 0-5
-- `PATCH /tasks/:id` - Update task (including status changes)
-- `DELETE /tasks/:id` - Delete task
+### Task Management
+- **Priority System** (0-5 scale):
+  - 0: Buffer - Low-priority fill tasks
+  - 1: Emergency - Override everything
+  - 2: ASAP - Urgent and important
+  - 3: Must today - Default priority
+  - 4: Deadline soon - Important but can wait
+  - 5: If possible - Nice to have
+- **Drag-to-Schedule** - Drag tasks from sidebar directly to calendar
+- **Task Hierarchy** - Support for subtasks with parent-child relationships
+- **Status Tracking** - TODO, IN_PROGRESS, SCHEDULED, DONE, CANCELLED
 
 ### Plan vs Actual
-- `POST /events/:id/reflection` - Save reflection (focus%, goal%, mood 1-10)
-- `GET /stats/week?start=YYYY-MM-DD` - Weekly adherence statistics
+- **Reflections** - End-of-event tracking with:
+  - Focus percentage (0-100%)
+  - Goal achievement (0-100%)
+  - Mood rating (1-10)
+  - Optional notes
+- **Weekly Stats** - Adherence tracking with planned vs completed minutes
+- **Performance Badges** - Real-time display of weekly performance
 
-### Quick Notes & Export
-- `POST /notes/quick` - Save quick note with auto-tagging
-- `GET /export/dry-run` - Preview Obsidian export (safe, no writes)
+### Notifications & Reminders
+- **Duration-Aware Defaults**:
+  - ≤30min events: 3 minutes before
+  - ~60min events: 5 minutes before
+  - ≥4h events: 30 minutes before
+- **Multiple Channels** - Telegram, Web, Desktop, Email support
+- **Quiet Hours** - Configurable do-not-disturb periods
+- **Deduplication** - 2-minute window to prevent duplicate notifications
 
-## Telegram Bot
+## Web UI
 
-**Bot Commands:** Inline keyboards only (no slash commands)
+### Week View Features
 
-**Main Menu:**
-- 📝 Quick Note - Instant capture with #quick tagging
-- 📋 New Task - Priority-based task creation (0-5 system)  
-- 📅 New Event - Smart 1-hour events
-- 📅 Plan Today - Today's events + urgent tasks
-- 📊 Stats - Weekly adherence tracking
+#### Event Creation
+- **Drag to Create** - Click and drag on empty space to create timed event
+- **All-Day Creation** - Drag in the all-day lane at top
+- **Multi-Day Creation** - Drag across day columns for spanning events
+- **Quick Create** - Button for instant 1-hour event at current time
 
-**Features:**
-- **Staged Creation Flows** - Progressive disclosure
-- **Session Management** - Context preserved between messages
-- **Smart Auto-Detection** - Recognizes quick notes automatically
-- **Priority System Integration** - Full 0-5 priority support
-- **Performance Tracking** - All interactions logged
+#### Event Manipulation
+- **Move Events** - Drag event body to move within day
+- **Cross-Day Move** - Ctrl+Drag to move events between days
+- **Resize Events** - Automatic 15-minute snap grid
+- **Edit Events** - Double-click or Enter key to open editor
+- **Delete Events** - Delete key or button in editor
 
-## Priority System
+#### Visual Features
+- **Overlap Layout** - Smart stacking for overlapping events
+- **Current Time Line** - Red indicator showing "now" with auto-update
+- **All-Day Section** - Sticky header showing all-day events
+- **Responsive Design** - 1/3/7 day views based on screen size
+- **Ghost Previews** - Animated previews during drag operations
 
-| Priority | Name | Color | Use Case |
-|----------|------|-------|----------|
-| 0 | Buffer | Blue | Fill time when available |
-| 1 | Emergency | Red | Override everything |
-| 2 | ASAP | Orange | Urgent and important |
-| 3 | Must today | Yellow | Default priority |
-| 4 | Deadline soon | Green | Important but can wait |
-| 5 | If possible | Gray | Nice to have |
+### Month View Features
+
+#### Navigation
+- **Click Day** - Navigate to week containing that day
+- **Double-Click** - Create all-day event for that day
+- **Drag Across Days** - Create multi-day spanning events
+- **Month Navigation** - Previous/Next month buttons
+- **Today Button** - Quick return to current month
+
+#### Display
+- **Event Previews** - Up to 4 events per day (2 on mobile)
+- **Event Counters** - Show total events when space limited
+- **Today Highlight** - Blue circle around current date
+- **Weekend Shading** - Visual distinction for weekends
+- **Out-of-Month Days** - Grayed out for context
+
+### Task Sidebar
+
+#### Features
+- **Always Open by Default** - Sidebar starts open for immediate access
+- **Priority Grouping** - Tasks grouped by priority level
+- **Drag to Schedule** - Drag any task to calendar to create event
+- **Quick Actions**:
+  - Toggle completion with checkbox
+  - Delete with × button
+  - Edit by clicking task
+- **Filtering** - Show/hide completed tasks
+- **Task Creation** - Inline form with priority selection
+
+### Event Editor
+
+#### Basic Fields
+- Title (required)
+- Time range display
+- All-day toggle
+- Reminder settings (0, 1, 3, 5, 10, 30, 60 minutes)
+
+#### Advanced Fields (collapsible)
+- Description (multi-line)
+- Location
+- Tags (comma-separated)
+- Color (hex code)
+- Recurrence rules
+
+#### Reflection Fields (for existing events)
+- Focus percentage slider
+- Goal achievement slider
+- Mood rating slider
+- Reflection notes
+
+#### Actions
+- Save/Create button
+- Delete button (edit mode only)
+- Cancel button
+- Escape key or click outside to close
+
+### Header Components
+
+#### Stats Badge
+- Planned hours for week
+- Completed hours
+- Adherence percentage
+- Color coding (green >80%, amber >60%, red <60%)
+
+#### Nudge Badge
+- Active notification route
+- Deduplication window
+- Weekly planner schedule
+
+#### DB Badge
+- Database connection status
+- Real-time health indicator
+
+## API Reference
+
+### Base Configuration
+- **URL**: `http://localhost:3001`
+- **Format**: JSON
+- **Authentication**: None (single-user MVP)
+- **Timezone**: UTC storage, MSK display
+
+### Events Endpoints
+
+#### GET /events
+Retrieve events within date range, with recurring event expansion.
+
+**Query Parameters:**
+- `start` (ISO 8601) - Range start date
+- `end` (ISO 8601) - Range end date
+
+**Response:**
+```json
+[{
+  "id": "uuid",
+  "title": "Event title",
+  "startsAt": "2025-08-29T10:00:00Z",
+  "endsAt": "2025-08-29T11:00:00Z",
+  "allDay": false,
+  "rrule": "FREQ=WEEKLY;COUNT=4",
+  "description": "Event description",
+  "location": "Location",
+  "color": "#3B82F6",
+  "tags": ["work", "meeting"],
+  "isMultiDay": false,
+  "reminders": [{
+    "id": "uuid",
+    "minutesBefore": 5,
+    "channel": "TELEGRAM"
+  }],
+  "reflections": [{
+    "focusPct": 80,
+    "goalPct": 90,
+    "mood": 8,
+    "note": "Productive session"
+  }],
+  "task": {
+    "id": "uuid",
+    "title": "Related task"
+  }
+}]
+```
+
+#### POST /events
+Create new event with optional reminders.
+
+**Request Body:**
+```json
+{
+  "title": "Meeting",
+  "startsAt": "2025-08-29T10:00:00Z",
+  "endsAt": "2025-08-29T11:00:00Z",
+  "allDay": false,
+  "description": "Team sync",
+  "location": "Conference room",
+  "tags": ["work"],
+  "reminders": [{
+    "minutesBefore": 5,
+    "channel": "TELEGRAM"
+  }]
+}
+```
+
+#### PATCH /events/:id
+Update existing event properties.
+
+#### DELETE /events/:id
+Remove event and associated data.
+
+### Tasks Endpoints
+
+#### GET /tasks
+Retrieve tasks with optional filtering.
+
+**Query Parameters:**
+- `status` - Filter by status (TODO, IN_PROGRESS, etc.)
+- `priority` - Filter by priority (0-5)
+
+**Response:**
+```json
+{
+  "tasks": [{
+    "id": "uuid",
+    "title": "Task title",
+    "description": "Details",
+    "priority": 3,
+    "status": "TODO",
+    "tags": ["important"],
+    "dueDate": "2025-08-30T00:00:00Z",
+    "estimatedMinutes": 60,
+    "parentId": null,
+    "subtasks": [],
+    "createdAt": "2025-08-29T10:00:00Z",
+    "updatedAt": "2025-08-29T10:00:00Z"
+  }]
+}
+```
+
+#### POST /tasks
+Create new task with priority and tags.
+
+#### PATCH /tasks/:id
+Update task including status changes.
+
+**Request Body:**
+```json
+{
+  "status": "SCHEDULED",
+  "priority": 2
+}
+```
+
+#### DELETE /tasks/:id
+Remove task from system.
+
+### Reflections
+
+#### POST /events/:id/reflection
+Save plan vs actual data for an event.
+
+**Request Body:**
+```json
+{
+  "focusPct": 75,
+  "goalPct": 80,
+  "mood": 7,
+  "note": "Some interruptions",
+  "wasCompleted": true,
+  "wasOnTime": false
+}
+```
+
+### Statistics
+
+#### GET /stats/week
+Get weekly performance metrics.
+
+**Query Parameters:**
+- `start` - Week start date
+
+**Response:**
+```json
+{
+  "startOfWeek": "2025-08-26T00:00:00Z",
+  "endOfWeek": "2025-09-02T00:00:00Z",
+  "plannedMinutes": 2400,
+  "completedMinutes": 1800,
+  "adherencePct": 75,
+  "eventCount": 20,
+  "reflectionCount": 15
+}
+```
+
+### Quick Notes
+
+#### POST /notes/quick
+Save quick note with auto-tagging.
+
+**Request Body:**
+```json
+{
+  "body": "Remember to review #project docs",
+  "source": "web"
+}
+```
+
+#### GET /notes/quick
+Retrieve recent quick notes.
+
+**Query Parameters:**
+- `limit` - Maximum notes to return (default: 20)
+
+### Export
+
+#### GET /export/dry-run
+Preview Obsidian vault export (read-only).
+
+**Query Parameters:**
+- `vault` - Vault path (optional)
+
+**Response:**
+```json
+{
+  "mode": "dry-run",
+  "planned": 42,
+  "totalBytes": 15360,
+  "files": [{
+    "path": "NeuroBoost/tasks/uuid.md",
+    "action": "create",
+    "bytes": 256
+  }]
+}
+```
+
+### System
+
+#### GET /health
+System health check with database status.
+
+#### GET /status/route
+Current notification routing configuration.
+
+#### GET /status/nudges
+Nudge system status and configuration.
 
 ## Database Schema
 
-**Key Models:**
-- `Task` - Priority 0-5, subtasks, tags, estimated minutes
-- `Event` - UTC timestamps, RRULE recurring, multi-day support
-- `Reminder` - Duration-aware defaults, multiple channels  
-- `Reflection` - Plan vs actual tracking (focus%, goal%, mood)
-- `TelegramSession` - Staged conversation flows
-- `UserSettings` - Timezone, working hours, reminder preferences
+### Core Tables
+- **Task** - Task management with priorities and hierarchy
+- **Event** - Calendar events with UTC timestamps
+- **EventException** - Recurring event exceptions
+- **Reminder** - Event reminders with delivery tracking
+- **Reflection** - Plan vs actual tracking
+- **QuickNote** - Quick capture notes
+- **TelegramSession** - Bot session management
+- **UserSettings** - User preferences and configuration
+- **ExportRun** - Export history tracking
 
-## Performance Metrics (from logs)
+## Keyboard Shortcuts
 
-**Typical Response Times:**
-- Event fetch: 15-36ms
-- Event creation: 25-96ms  
-- Task creation: 28-44ms
-- Database queries: 13-156ms
-- Bot interactions: <100ms
+### Global
+- `Escape` - Close editor/modal
+- `Ctrl+Enter` - Save in editor
 
-## File Structure
+### Week View
+- `←/→` - Previous/Next week
+- `+/-` - Nudge selected event ±15 minutes
+- `Enter` - Edit selected event
+- `Delete` - Delete selected event
+- `Drag` - Create event
+- `Ctrl+Drag` - Move event across days
+- `Double-click` - Edit event
 
-```
-neuroboost-v0.2.1/
-├── apps/
-│   ├── api/              # Express + Prisma server
-│   │   ├── src/
-│   │   │   ├── server.mjs    # Enhanced API with logging
-│   │   │   └── logger.mjs    # Structured JSON logger
-│   │   └── prisma/schema.prisma
-│   ├── bot/              # Telegram bot  
-│   │   └── src/
-│   │       ├── index.mjs     # Bot with inline keyboards
-│   │       ├── keyboards.mjs # Keyboard layouts
-│   │       ├── session.mjs   # Session management
-│   │       └── logger.mjs    # Bot logging
-│   └── web/              # React web UI
-├── logs/                 # Structured JSON logs
-├── view-logs.ps1        # PowerShell log viewer
-└── view-logs.mjs        # Node.js log viewer
-```
+### Month View
+- `Click` - Navigate to week
+- `Double-click` - Create all-day event
+- `Drag` - Create multi-day event
 
-## Environment Variables
+## Technical Stack
 
-**API (.env):**
-```env
-DATABASE_URL=postgresql://user:pass@localhost:5433/neuroboost
-LOG_LEVEL=info
-NB_ROUTE_PRIMARY=telegram-stub
-```
+### Backend
+- Node.js 20 LTS
+- Express.js
+- Prisma 6.14 ORM
+- PostgreSQL 16
+- Zod validation
 
-**Bot (.env):**
-```env
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-API_BASE=http://localhost:3001
-LOG_LEVEL=info
-TZ=Europe/Moscow
-```
+### Frontend
+- React 18.3
+- TypeScript 5.4
+- Vite 5.3
+- Tailwind CSS 3.4
+- Monospace font family
 
-## Next Phase: Production Deployment
+### Infrastructure
+- Docker & Docker Compose
+- pnpm 10.14 package manager
+- UTC timestamp storage
+- MSK (UTC+3) display timezone
 
-Ready for VPS deployment with:
-- Docker containerization
-- SSL certificates (Let's Encrypt)
-- Nginx reverse proxy
-- Auto-restart systemd services
-- Log monitoring and alerts
+## Design Principles
 
-## Monitoring
+### Monospace Aesthetic
+- Font: `font-mono` throughout
+- Colors: Zinc palette (black/gray/white)
+- Minimal animations with `animate-pulse`
+- High contrast borders
+- Focus on typography over icons
 
-**Health Checks:**
-- API: `http://localhost:3001/health`
-- Bot: `http://localhost:3002/health`
+### Interaction Patterns
+- Keyboard-first design
+- Drag-and-drop for scheduling
+- Double-click for editing
+- Single click for selection
+- Contextual ghost previews
 
-**Log Monitoring:**
-- Performance metrics tracked
-- Error logs separated
-- Automatic log rotation (10MB limit)
-- Structured JSON for easy parsing
+### Responsive Behavior
+- Mobile: 1-day view, simplified UI
+- Tablet: 3-day view, reduced features
+- Desktop: Full 7-day view, all features
+
+## Current Limitations
+
+- Single-user system (no authentication)
+- Export is dry-run only (no actual writes)
+- No external calendar sync
+- Telegram bot in stub mode
+- No client-side encryption
+- No mobile app (web responsive only)
 
 ---
 
-## Version History
-
-- **v0.1.1** - Basic calendar with drag-create, Obsidian dry-run export
-- **v0.2.1** - Full Telegram bot, enhanced API, professional logging, plan vs actual tracking
-
-**Architecture:** Server-first for cross-device sync, privacy-focused, no external telemetry.
+**Version**: 0.3.0  
+**Status**: Production MVP  
+**License**: Private  
+**Author**: Denis Zemtsov (@zemdenalex)

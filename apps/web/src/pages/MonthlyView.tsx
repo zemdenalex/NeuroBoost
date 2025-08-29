@@ -97,7 +97,7 @@ export type MonthlyViewProps = {
   onDayClick?: (date: Date) => void;
   onEventClick?: (event: NbEvent) => void;
   onCreate?: (date: Date) => void;
-  onCreateMultiDay?: (startDate: Date, endDate: Date) => void; // FIXED: Add multi-day creation
+  onCreateMultiDay?: (startDate: Date, endDate: Date) => void;
   selectedEventId?: string;
 };
 
@@ -118,9 +118,9 @@ export function MonthlyView({
   selectedEventId
 }: MonthlyViewProps) {
   
-  // Mobile detection for layout adjustments
   const [isMobile, setIsMobile] = useState(false);
   const [dragState, setDragState] = useState<DragState>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => {
@@ -159,10 +159,16 @@ export function MonthlyView({
   
   const today = new Date();
 
-  // Drag handling for multi-day events
+  // Handle drag for multi-day events
   useEffect(() => {
+    if (!isDragging || !dragState) return;
+
     function onMouseMove(ev: MouseEvent) {
       if (!dragState || !containerRef.current) return;
+      
+      // Prevent text selection during drag
+      ev.preventDefault();
+      document.getSelection()?.removeAllRanges();
       
       // Find which day cell the mouse is over
       const target = document.elementFromPoint(ev.clientX, ev.clientY);
@@ -185,23 +191,29 @@ export function MonthlyView({
         if (daysDiff >= 1) {
           // Multi-day event
           onCreateMultiDay(dragState.startDate, dragState.endDate);
-        } else {
+        } else if (daysDiff === 0) {
           // Single day event
           onCreate?.(dragState.startDate);
         }
       }
       setDragState(null);
+      setIsDragging(false);
     }
 
-    if (dragState?.isActive) {
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
-      return () => {
-        document.removeEventListener('mousemove', onMouseMove);
-        document.removeEventListener('mouseup', onMouseUp);
-      };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('selectstart', preventSelect);
+    
+    function preventSelect(e: Event) {
+      e.preventDefault();
     }
-  }, [dragState, onCreate, onCreateMultiDay]);
+    
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('selectstart', preventSelect);
+    };
+  }, [isDragging, dragState, onCreate, onCreateMultiDay]);
   
   const handlePrevMonth = () => {
     const newDate = new Date(viewDate);
@@ -229,7 +241,7 @@ export function MonthlyView({
   });
   
   const formatEventTime = (event: NbEvent) => {
-    if (event.allDay) return 'Весь день';
+    if (event.allDay) return 'All day';
     
     const start = new Date(event.startUtc);
     const mskStart = new Date(start.getTime() + MSK_OFFSET_MS);
@@ -246,12 +258,23 @@ export function MonthlyView({
   const isInDragRange = (date: Date) => {
     if (!dragState) return false;
     const time = date.getTime();
-    return time >= dragState.startDate.getTime() && time <= dragState.endDate.getTime();
+    const startTime = dragState.startDate.getTime();
+    const endTime = dragState.endDate.getTime();
+    
+    // Normalize to start of day for comparison
+    const dateStart = new Date(date);
+    dateStart.setHours(0, 0, 0, 0);
+    const rangeStart = new Date(dragState.startDate);
+    rangeStart.setHours(0, 0, 0, 0);
+    const rangeEnd = new Date(dragState.endDate);
+    rangeEnd.setHours(0, 0, 0, 0);
+    
+    return dateStart.getTime() >= rangeStart.getTime() && dateStart.getTime() <= rangeEnd.getTime();
   };
   
   return (
     <div className="h-full flex flex-col bg-black text-zinc-100 font-mono" ref={containerRef}>
-      {/* Header - Mobile optimized */}
+      {/* Header */}
       <div className="flex items-center justify-between p-2 md:p-4 border-b border-zinc-700 bg-zinc-900">
         <div className="flex items-center gap-2 md:gap-4">
           <button
@@ -276,18 +299,10 @@ export function MonthlyView({
           >
             {isMobile ? 'Now' : 'Today'}
           </button>
-          {!isMobile && (
-            <button
-              onClick={() => onCreate?.(new Date())}
-              className="px-2 py-1 text-xs rounded bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 font-mono"
-            >
-              + Event
-            </button>
-          )}
         </div>
       </div>
       
-      {/* Days of week header - Monospace */}
+      {/* Days of week header */}
       <div className="grid grid-cols-7 border-b border-zinc-700 bg-zinc-900/50">
         {(isMobile ? ['M', 'T', 'W', 'T', 'F', 'S', 'S'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']).map((day, index) => (
           <div
@@ -299,8 +314,8 @@ export function MonthlyView({
         ))}
       </div>
       
-      {/* Calendar grid - Focused, minimal design with drag support */}
-      <div className="flex-1 grid grid-rows-6">
+      {/* Calendar grid */}
+      <div className="flex-1 grid grid-rows-6" style={{ userSelect: isDragging ? 'none' : 'auto' }}>
         {weeks.map((week, weekIndex) => (
           <div key={weekIndex} className="grid grid-cols-7 border-b border-zinc-700 last:border-b-0">
             {week.map((date, dayIndex) => {
@@ -329,21 +344,25 @@ export function MonthlyView({
                     ${inDragRange ? 'bg-emerald-400/20 border-emerald-400/40' : ''}
                   `}
                   onClick={() => onDayClick?.(date)}
-                  onDoubleClick={() => onCreate?.(date)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    onCreate?.(date);
+                  }}
                   onMouseDown={(e) => {
                     // Start drag for multi-day event creation
-                    if (onCreateMultiDay) {
+                    if (onCreateMultiDay && e.detail !== 2) { // Not double-click
                       e.preventDefault();
                       setDragState({
                         startDate: new Date(date),
                         endDate: new Date(date),
                         isActive: true
                       });
+                      setIsDragging(true);
                     }
                   }}
-                  title={`${date.toLocaleDateString('ru-RU')} • ${dayEvents.length} events • Double-click to create • Drag to create multi-day`}
+                  title={`${date.toLocaleDateString('ru-RU')} • ${dayEvents.length} events • Click: go to week • Double-click: create • Drag: multi-day`}
                 >
-                  {/* Date number - Clean monospace display */}
+                  {/* Date number */}
                   <div className="flex items-center justify-between mb-1">
                     <span
                       className={`
@@ -364,7 +383,7 @@ export function MonthlyView({
                     )}
                   </div>
                   
-                  {/* Events - Minimal, focused display */}
+                  {/* Events */}
                   {!isMobile && (
                     <div className="space-y-0.5">
                       {visibleEvents.map((event, eventIndex) => (
@@ -381,7 +400,7 @@ export function MonthlyView({
                           style={{ 
                             backgroundColor: selectedEventId === event.id 
                               ? undefined 
-                              : (getEventColor(event) + '40') // Semi-transparent
+                              : (getEventColor(event) + '40')
                           }}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -430,19 +449,34 @@ export function MonthlyView({
         ))}
       </div>
       
-      {/* Footer - Enhanced info */}
+      {/* Footer */}
       <div className="p-2 border-t border-zinc-700 bg-zinc-900/50">
         <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
           <span>
             {events.length} events this month
           </span>
           <div className="flex items-center gap-4">
-            {!isMobile && <span>Drag across days: multi-day event</span>}
-            <span>Double-click day: create event</span>
-            <span>Click event: edit</span>
+            <span>Click day: week view</span>
+            <span>Double-click: create</span>
+            {!isMobile && <span>Drag: multi-day</span>}
           </div>
         </div>
       </div>
+      
+      {/* Multi-day drag ghost overlay */}
+      {dragState && isDragging && (
+        <div 
+          className="fixed pointer-events-none z-50"
+          style={{
+            left: 0,
+            top: 0,
+            width: '100%',
+            height: '100%'
+          }}
+        >
+          <div className="absolute bg-emerald-400/30 border-2 border-emerald-400 rounded animate-pulse" />
+        </div>
+      )}
     </div>
   );
 }

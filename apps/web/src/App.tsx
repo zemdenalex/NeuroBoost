@@ -1,3 +1,4 @@
+// apps/web/src/App.tsx - Fixed task scheduling
 import { useEffect, useState } from 'react';
 import { WeekGrid } from './pages/WeekGrid';
 import { MonthlyView } from './pages/MonthlyView';
@@ -7,7 +8,7 @@ import NudgeBadge from './components/NudgeBadge';
 import DbBadge from './components/DbBadge';
 import StatsBadge from './components/StatsBadge';
 import type { NbEvent, Task, CreateEventBody } from './types';
-import { getEvents, patchEventUTC, deleteEvent, createEventUTC, API_BASE, updateTask } from './api';
+import { getEvents, patchEventUTC, deleteEvent, createEventUTC, API_BASE, updateTask, UpdateTaskBody } from './api';
 
 type Range = { start: Date; end: Date } | null;
 type ViewMode = 'week' | 'month';
