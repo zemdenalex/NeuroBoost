@@ -17,6 +17,9 @@ out/
 # Github
 github* 
 
+#Private info
+private/
+
 # Environment files (keep templates)
 .env
 .env.local
