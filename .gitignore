@@ -1,0 +1,88 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+*.test.js
+*.spec.js
+
+# Production builds
+dist/
+build/
+.next/
+out/
+
+# Environment files (keep templates)
+.env
+.env.local
+.env.development
+# Keep production template
+!.env.production
+!.env.example
+
+# Backups
+backup*
+
+# Logs (keep directory structure)
+logs/*.log
+logs/*.error.log
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*log.txt
+
+# Editor directories
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Files
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+.cache/
+
+# TypeScript
+*.tsbuildinfo
+
+# Docker (keep compose files)
+.dockerignore
+docker-compose.override.yml
+
+# Backup files
+*.backup
+*.bak
+*.old
+
+# User data
+uploads/
+user-data/
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
+# Keep important configs
+!docker-compose.yml
+!docker-compose.production.yml
+!Dockerfile*

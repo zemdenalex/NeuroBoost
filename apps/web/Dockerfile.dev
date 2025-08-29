@@ -1,0 +1,31 @@
+# apps/web/Dockerfile.dev
+# Development Dockerfile for Web UI with hot-reload
+
+FROM node:20-alpine
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@10.14.0 --activate
+
+# Set working directory
+WORKDIR /app
+
+# Copy root package files
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+
+# Copy Web package files
+COPY apps/web/package.json ./apps/web/
+
+# Install dependencies
+RUN pnpm install
+
+# Copy Web source code (will be overridden by volume mount)
+COPY apps/web/ ./apps/web/
+
+# Expose Vite dev server port
+EXPOSE 5173
+
+# Set working directory to web app
+WORKDIR /app/apps/web
+
+# Start development server
+CMD ["pnpm", "dev", "--host", "0.0.0.0"]

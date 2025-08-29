@@ -1,0 +1,152 @@
+services:
+  # PostgreSQL Database (unchanged)
+  db:
+    image: postgres:16-alpine
+    container_name: nb-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nb_user
+      POSTGRES_PASSWORD: your_secure_password_here
+      POSTGRES_DB: neuroboost
+      TZ: UTC
+      PGTZ: UTC
+    command: >
+      postgres -c 'timezone=UTC'
+               -c 'max_connections=50'
+               -c 'shared_buffers=256MB'
+               -c 'log_min_messages=warning'
+    ports:
+      - "127.0.0.1:5433:5432"  # Bind only to localhost for security
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nb_user} -d ${POSTGRES_DB:-neuroboost}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - neuroboost-network
+
+  # API Service (unchanged)
+  api:
+    working_dir: /app/apps/api
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: nb-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3001"  # Bind only to localhost
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
+      API_PORT: ${API_PORT:-3001}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOGS_DIR: /app/logs
+      NB_ROUTE_PRIMARY: ${NB_ROUTE_PRIMARY:-telegram}
+      NB_QUIET: ${NB_QUIET:-23:00-08:00}
+      WORK_HOURS_START: ${WORK_HOURS_START:-09:00}
+      WORK_HOURS_END: ${WORK_HOURS_END:-17:00}
+      WORK_DAYS: ${WORK_DAYS:-1,2,3,4,5}
+    volumes:
+      - api-logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - neuroboost-network
+
+  # Telegram Bot Service (unchanged)
+  bot:
+    build:
+      context: .
+      dockerfile: apps/bot/Dockerfile
+    container_name: nb-bot
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3002:3002"  # Bind only to localhost
+    environment:
+      API_BASE: http://api:3001
+      BOT_PORT: "3002"
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-nb_user}:${POSTGRES_PASSWORD:-secure_password_here}@db:5432/${POSTGRES_DB:-neuroboost}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOGS_DIR: /app/logs
+      TZ: Europe/Moscow
+      CLEANUP_INTERVAL_MINUTES: ${CLEANUP_INTERVAL_MINUTES:-60}
+    volumes:
+      - bot-logs:/app/logs
+      - ./apps/bot/.env:/app/apps/bot/.env:ro
+    env_file:
+      - ./apps/bot/.env 
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3002/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - neuroboost-network
+
+  # Web UI (production build with nginx)
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Fixed: Use /api instead of full URL since nginx will handle routing
+        VITE_API_URL: /api
+    container_name: nb-web
+    restart: unless-stopped
+    networks:
+      - neuroboost-network
+    depends_on:
+      - api
+
+  # Nginx Reverse Proxy - FIXED to use port 80
+  nginx:
+    image: nginx:alpine
+    container_name: nb-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"      # Changed from 8080:80 to 80:80
+      - "443:443"    # Keep HTTPS ready
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - nginx-cache:/var/cache/nginx
+    depends_on:
+      - api
+      - bot
+      - web
+    networks:
+      - neuroboost-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health | grep -q OK || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+networks:
+  neuroboost-network:
+    driver: bridge
+
+volumes:
+  dbdata:
+    driver: local
+  api-logs:
+    driver: local
+  bot-logs:
+    driver: local
+  nginx-cache:
+    driver: local

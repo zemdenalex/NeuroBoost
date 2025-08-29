@@ -1,0 +1,295 @@
+// apps/api/prisma/schema.prisma - Updated version with enhanced features
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Enhanced Tasks with work hours visibility and categorization
+model Task {
+  id          String      @id @default(uuid())
+  title       String
+  description String?     @db.Text
+  priority    Int         @default(3)  // 0=Buffer, 1=Emergency, 2=ASAP, 3=Must today, 4=Deadline soon, 5=If possible
+  status      TaskStatus  @default(TODO)
+  parentId    String?
+  parent      Task?       @relation("Subtasks", fields: [parentId], references: [id])
+  subtasks    Task[]      @relation("Subtasks")
+  
+  // Enhanced categorization and visibility
+  tags                   String[]    @default([])
+  category               String?     // 'work', 'personal', 'health', 'household'
+  hiddenDuringWorkHours  Boolean     @default(false)  // Explicitly hide during work hours
+  workHoursRelevant      Boolean     @default(true)   // Whether task is work-related
+  
+  // Scheduling and time management
+  dueDate                DateTime?   @db.Timestamptz(6)
+  estimatedMinutes       Int?        // For better scheduling and drag-to-calendar
+  
+  createdAt   DateTime    @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime    @updatedAt @db.Timestamptz(6)
+  events      Event[]
+  
+  @@index([priority, status])
+  @@index([category, workHoursRelevant])
+  @@index([hiddenDuringWorkHours])
+  @@index([dueDate])
+  @@index([priority, status, category])
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  CANCELLED
+  SCHEDULED    // When dragged to calendar or converted to event
+}
+
+/// Calendar blocks (UTC) with enhanced multi-day and scheduling support
+model Event {
+  id           String           @id @default(uuid())
+  title        String
+  startsAt     DateTime         @db.Timestamptz(6)
+  endsAt       DateTime         @db.Timestamptz(6)
+  allDay       Boolean          @default(false)
+  
+  // Task relationship with better integration
+  sourceTaskId String?
+  task         Task?            @relation(fields: [sourceTaskId], references: [id])
+  
+  // Recurring events (RFC5545)
+  rrule        String?
+  tz           String?          // For UI display (e.g., "Europe/Moscow")
+  
+  // Enhanced metadata
+  description  String?          @db.Text
+  location     String?
+  color        String?          // Hex color for UI
+  tags         String[]         @default([])
+  
+  // Multi-day and scheduling enhancements
+  isMultiDay   Boolean          @default(false)  // Computed: endsAt date != startsAt date
+  
+  // Work hours integration
+  isWorkEvent  Boolean          @default(true)   // Whether event is work-related
+  
+  createdAt    DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime         @updatedAt @db.Timestamptz(6)
+  
+  // Relations
+  exceptions   EventException[]
+  reminders    Reminder[]
+  reflections  Reflection[]
+  
+  @@index([startsAt, endsAt])
+  @@index([rrule])
+  @@index([sourceTaskId])
+  @@index([isWorkEvent])
+}
+
+/// Handle recurring event exceptions (skip/reschedule specific occurrences)
+model EventException {
+  id          String   @id @default(uuid())
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  occurrence  DateTime @db.Timestamptz(6)  // start time of the skipped/changed occurrence
+  skipped     Boolean  @default(true)
+  replacementEventId String?
+  
+  @@unique([eventId, occurrence])
+}
+
+/// Enhanced reminders with duration-aware defaults and better channel management
+model Reminder {
+  id            String        @id @default(uuid())
+  eventId       String
+  event         Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  minutesBefore Int
+  channel       ReminderChannel @default(TELEGRAM)
+  
+  // Enhanced reminder tracking
+  message       String?       // Custom reminder message
+  isDelivered   Boolean       @default(false)
+  deliveredAt   DateTime?     @db.Timestamptz(6)
+  isAcknowledged Boolean      @default(false)
+  acknowledgedAt DateTime?    @db.Timestamptz(6)
+  
+  // Snooze functionality
+  snoozedUntil  DateTime?     @db.Timestamptz(6)
+  snoozeCount   Int           @default(0)
+  
+  createdAt     DateTime      @default(now()) @db.Timestamptz(6)
+  
+  @@index([isDelivered, deliveredAt])
+  @@index([snoozedUntil])
+}
+
+enum ReminderChannel {
+  TELEGRAM
+  WEB
+  DESKTOP
+  EMAIL
+}
+
+/// Plan vs Actual tracking with enhanced metrics and work hours awareness
+model Reflection {
+  id        String   @id @default(uuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  
+  // Core reflection metrics
+  focusPct  Int      // 0-100
+  goalPct   Int      // 0-100  
+  mood      Int      // 1-10
+  note      String?  @db.Text
+  
+  // Enhanced actual time tracking
+  actualStartsAt DateTime? @db.Timestamptz(6)
+  actualEndsAt   DateTime? @db.Timestamptz(6)
+  
+  // Work hours context
+  wasWorkHours   Boolean   @default(true)   // Whether event was during work hours
+  contextTags    String[]  @default([])     // Context tags like 'distracted', 'focused', 'interrupted'
+  
+  // Quick completion status
+  wasCompleted   Boolean   @default(true)
+  wasOnTime      Boolean   @default(true)
+  productivityScore Int?   // 1-10 subjective productivity rating
+  
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  
+  @@unique([eventId])  // One reflection per event
+}
+
+/// Quick notes with enhanced categorization
+model QuickNote {
+  id        String   @id @default(uuid())
+  body      String   @db.Text
+  tags      String[] @default([])
+  source    String   @default("web")  // "telegram", "web", "api"
+  category  String?  // Auto-categorized based on content/tags
+  
+  // Work hours context
+  createdDuringWorkHours Boolean @default(false)
+  
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  
+  @@index([source])
+  @@index([category])
+  @@index([createdAt])
+  @@index([createdDuringWorkHours])
+}
+
+/// Export runs with enhanced tracking
+model ExportRun {
+  id           String   @id @default(uuid())
+  mode         String   // "dry-run" | "write"
+  startedAt    DateTime @default(now()) @db.Timestamptz(6)
+  finishedAt   DateTime? @db.Timestamptz(6)
+  filesPlanned Int      @default(0)
+  filesWritten Int      @default(0)
+  errorMessage String?  @db.Text
+  
+  // Enhanced export context
+  exportType   String   @default("full")  // "full", "work_only", "personal_only", "date_range"
+  exportedBy   String   @default("web")   // "web", "telegram", "api"
+  
+  @@index([startedAt])
+  @@index([exportType])
+}
+
+/// Enhanced Telegram session management with work hours awareness
+model TelegramSession {
+  id          String    @id @default(uuid())
+  chatId      String
+  userId      String?
+  state       String    // "idle", "creating_task", "creating_event", "work_hours_config"
+  data        Json?     // Enhanced with work hours settings
+  expiresAt   DateTime  @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
+  
+  @@unique([chatId])
+  @@index([expiresAt])
+}
+
+/// Enhanced user settings with comprehensive work hours and preferences
+model UserSettings {
+  id                  String   @id @default(uuid())
+  userId              String   @unique  // Future: when auth is added
+  
+  // Enhanced timezone and work schedule
+  defaultTimezone     String   @default("Europe/Moscow")
+  workingHoursStart   Int      @default(9)   // 24h format
+  workingHoursEnd     Int      @default(17)
+  workingDays         Int[]    @default([1, 2, 3, 4, 5]) // 0=Sunday, 1=Monday, etc.
+  
+  // Work hours behavior settings
+  hidePersonalTasksDuringWork Boolean @default(true)
+  showWorkTasksAfterHours     Boolean @default(false)
+  autoScheduleWorkTasks       Boolean @default(true)
+  
+  // Enhanced notification preferences
+  enableTelegram      Boolean  @default(true)
+  enableWeb           Boolean  @default(true)
+  enableDesktop       Boolean  @default(false)
+  
+  // Context-aware reminder settings
+  shortEventReminder  Int      @default(3)   // ≤30min events
+  mediumEventReminder Int      @default(5)   // ~60min events  
+  longEventReminder   Int      @default(30)  // ≥4h events
+  workHoursReminderChannel String @default("telegram")  // Primary channel during work
+  offHoursReminderChannel  String @default("telegram")  // Primary channel after work
+  
+  // Task management preferences
+  defaultTaskCategory String   @default("work")
+  autoCategorizeTasks Boolean  @default(true)
+  taskPriorityDecay   Boolean  @default(true)   // Auto-lower priority over time
+  
+  // Calendar and planning preferences
+  planningReminderTime Int     @default(18)     // Hour for weekly planning reminder
+  showWeekendTasks    Boolean  @default(true)
+  calendarDefaultDuration Int  @default(60)     // Default event duration in minutes
+  
+  // Export preferences
+  obsidianVaultPath   String?
+  exportDuringWorkHours Boolean @default(false)  // Whether to include personal tasks in work exports
+  
+  createdAt          DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @db.Timestamptz(6)
+  
+  @@index([workingHoursStart, workingHoursEnd])
+  @@index([userId])
+} 
+
+/// Enhanced analytics for work-life balance tracking
+model WorkHoursLog {
+  id            String   @id @default(uuid())
+  userId        String   @default("default")
+  date          DateTime @db.Date
+  
+  // Work hours tracking
+  plannedWorkHours    Int  // Minutes planned for work
+  actualWorkHours     Int  // Minutes actually worked
+  plannedPersonalTime Int  // Minutes planned for personal
+  actualPersonalTime  Int  // Minutes actually personal
+  
+  // Context and quality metrics
+  workFocusScore     Int?  // 1-10 average focus during work hours
+  personalSatisfaction Int? // 1-10 satisfaction with personal time
+  overallBalance     Int?  // 1-10 work-life balance rating
+  
+  // Task completion stats
+  workTasksCompleted     Int @default(0)
+  personalTasksCompleted Int @default(0)
+  emergencyInterruptions Int @default(0)
+  
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  
+  @@unique([userId, date])
+  @@index([date])
+  @@index([userId, date])
+}
