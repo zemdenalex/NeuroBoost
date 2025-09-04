@@ -70,14 +70,16 @@ export type QuickNote = {
 // API Request/Response types
 export type CreateEventBody = {
   title: string;
-  startsAt: string; // UTC ISO
-  endsAt: string;   // UTC ISO
+  startsAt: string;
+  endsAt: string;
   allDay?: boolean;
   rrule?: string | null;
   description?: string;
   location?: string;
   color?: string;
   tags?: string[];
+  taskId?: string;  // ADD THIS LINE
+  sourceTaskId?: string;  // ADD THIS LINE
   reminders?: Array<{
     minutesBefore: number;
     channel?: 'TELEGRAM' | 'WEB' | 'DESKTOP' | 'EMAIL';

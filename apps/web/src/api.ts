@@ -1,25 +1,8 @@
-import type { NbEvent } from './types';
+import type { NbEvent, CreateEventBody } from './types';
 
 export const API_BASE =
   (import.meta.env?.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ||
   'http://localhost:3001';
-
-export type CreateEventBody = {
-  title: string;
-  startsAt: string; // UTC ISO
-  endsAt: string;   // UTC ISO
-  allDay?: boolean;
-  rrule?: string | null;
-  description?: string;
-  location?: string;
-  color?: string;
-  tags?: string[];
-  reminders?: Array<{
-    minutesBefore: number;
-    channel?: 'TELEGRAM' | 'WEB' | 'DESKTOP' | 'EMAIL';
-    message?: string;
-  }>;
-};
 
 export type CreateTaskBody = {
   title: string;
