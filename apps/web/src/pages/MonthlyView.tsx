@@ -325,12 +325,12 @@ export function MonthlyView({
   };
   
   return (
-    <div className="h-full flex flex-col bg-black text-zinc-100 font-mono" ref={containerRef}>
-      <div 
-        ref={setScrollContainer}
-        className="flex-1 grid grid-rows-6 overflow-y-auto"  // ADD overflow-y-auto
-        style={{ userSelect: isDragging ? 'none' : 'auto' }}
-      >
+    <div 
+      ref={setScrollContainer}
+      className="flex-1 grid grid-rows-6 overflow-y-auto"  // ADD overflow-y-auto
+      style={{ userSelect: isDragging ? 'none' : 'auto' }}
+    >
+      <div className="h-full flex flex-col bg-black text-zinc-100 font-mono" ref={containerRef}>
         {/* Header */}
         <div className="flex items-center justify-between p-2 md:p-4 border-b border-zinc-700 bg-zinc-900">
           <div className="flex items-center gap-2 md:gap-4">

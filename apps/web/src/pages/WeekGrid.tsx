@@ -33,19 +33,6 @@ function minutesSinceMskMidnight(utcISO: string): number {
   return Math.max(0, Math.min(1440, Math.round((utcMs - baseUtc) / 60000)));
 }
 
-const [isMobile, setIsMobile] = useState(false);
-const [touchStart, setTouchStart] = useState<{x: number, y: number, time: number} | null>(null);
-
-useEffect(() => {
-  const checkMobile = () => {
-    const mobile = window.innerWidth < MOBILE_BREAKPOINT;
-    setIsMobile(mobile);
-  };
-  checkMobile();
-  window.addEventListener('resize', checkMobile);
-  return () => window.removeEventListener('resize', checkMobile);
-}, []);
-
 function getDaySpan(event: NbEvent): { startDay: number; endDay: number; spanDays: number } {
   const startDate = new Date(event.startUtc);
   const endDate = new Date(event.endUtc);
@@ -143,7 +130,8 @@ export function WeekGrid({
   
   const [isMobile, setIsMobile] = useState(false);
   const [visibleDays, setVisibleDays] = useState(7);
-  
+  const [touchStart, setTouchStart] = useState<{x: number, y: number, time: number} | null>(null);
+
   useEffect(() => {
     const checkMobile = () => {
       const mobile = window.innerWidth < MOBILE_BREAKPOINT;

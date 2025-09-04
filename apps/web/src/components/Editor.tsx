@@ -192,49 +192,10 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete }
         </button>
       </div>
 
-      {!isEditing || isAllDay ? (
-  <div className="text-xs text-zinc-400 mb-4">
-    {formatTimeRange()}
-  </div>
-  ) : (
-    <div className="grid grid-cols-2 gap-2 mb-4">
-      <div>
-        <label className="block text-xs text-zinc-400 mb-1">Start</label>
-        <input
-          type="time"
-          value={formatTimeForInput(range?.start || (draft ? new Date(draft.startUtc) : new Date()))}
-          onChange={(e) => {
-            // Handle time change logic
-            const [hours, minutes] = e.target.value.split(':').map(Number);
-            if (range) {
-              const newStart = new Date(range.start);
-              newStart.setHours(hours - 3, minutes, 0, 0); // Adjust for MSK
-              setRange({ ...range, start: newStart });
-            }
-          }}
-          className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm"
-        />
+      <div className="text-xs text-zinc-400 mb-4">
+        {formatTimeRange()}
       </div>
-      <div>
-        <label className="block text-xs text-zinc-400 mb-1">End</label>
-        <input
-          type="time"
-          value={formatTimeForInput(range?.end || (draft ? new Date(draft.endUtc) : new Date()))}
-          onChange={(e) => {
-            // Handle time change logic
-            const [hours, minutes] = e.target.value.split(':').map(Number);
-            if (range) {
-              const newEnd = new Date(range.end);
-              newEnd.setHours(hours - 3, minutes, 0, 0); // Adjust for MSK
-              setRange({ ...range, end: newEnd });
-            }
-          }}
-          className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm"
-        />
-      </div>
-    </div>
-  )}
-
+      
       <div className="space-y-4">
         <div>
           <input
