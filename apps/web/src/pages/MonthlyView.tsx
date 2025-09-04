@@ -122,16 +122,42 @@ export function MonthlyView({
   const [dragState, setDragState] = useState<DragState>(null);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  
+  const [scrollContainer, setScrollContainer] = useState<HTMLDivElement | null>(null);
+  const [viewDate, setViewDate] = useState(currentDate);
+
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
-  
-  const [viewDate, setViewDate] = useState(currentDate);
-  
+
+  useEffect(() => {
+    if (!scrollContainer) return;
+    
+    let scrollTimeout: NodeJS.Timeout;
+    const handleScroll = () => {
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => {
+        const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+        const scrollPercent = scrollTop / (scrollHeight - clientHeight);
+        
+        // Auto-navigate months based on scroll position
+        if (scrollPercent > 0.8) {
+          handleNextMonth();
+        } else if (scrollPercent < 0.2 && scrollTop > 0) {
+          handlePrevMonth();
+        }
+      }, 150);
+    };
+    
+    scrollContainer.addEventListener('scroll', handleScroll);
+    return () => {
+      scrollContainer.removeEventListener('scroll', handleScroll);
+      clearTimeout(scrollTimeout);
+    };
+  }, [scrollContainer, viewDate]);
+
   const { monthStart, calendarStart, calendarEnd, weeks } = useMemo(() => {
     const monthStart = getMonthStart(viewDate);
     const calendarStart = getCalendarStart(monthStart);
@@ -158,6 +184,32 @@ export function MonthlyView({
   }, [events, calendarStart, calendarEnd]);
   
   const today = new Date();
+
+  useEffect(() => {
+    if (!scrollContainer) return;
+    
+    let scrollTimeout: NodeJS.Timeout;
+    const handleScroll = () => {
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => {
+        const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+        const scrollPercent = scrollTop / (scrollHeight - clientHeight);
+        
+        // Auto-navigate months based on scroll position
+        if (scrollPercent > 0.8) {
+          handleNextMonth();
+        } else if (scrollPercent < 0.2 && scrollTop > 0) {
+          handlePrevMonth();
+        }
+      }, 150);
+    };
+    
+    scrollContainer.addEventListener('scroll', handleScroll);
+    return () => {
+      scrollContainer.removeEventListener('scroll', handleScroll);
+      clearTimeout(scrollTimeout);
+    };
+  }, [scrollContainer, viewDate]);
 
   // Handle drag for multi-day events
   useEffect(() => {
@@ -274,209 +326,215 @@ export function MonthlyView({
   
   return (
     <div className="h-full flex flex-col bg-black text-zinc-100 font-mono" ref={containerRef}>
-      {/* Header */}
-      <div className="flex items-center justify-between p-2 md:p-4 border-b border-zinc-700 bg-zinc-900">
-        <div className="flex items-center gap-2 md:gap-4">
-          <button
-            onClick={handlePrevMonth}
-            className="px-2 py-1 text-xs rounded bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 font-mono"
-          >
-            ←
-          </button>
-          <h2 className="text-sm md:text-xl font-semibold font-mono capitalize">{monthName}</h2>
-          <button
-            onClick={handleNextMonth}
-            className="px-2 py-1 text-xs rounded bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 font-mono"
-          >
-            →
-          </button>
+      <div 
+        ref={setScrollContainer}
+        className="flex-1 grid grid-rows-6 overflow-y-auto"  // ADD overflow-y-auto
+        style={{ userSelect: isDragging ? 'none' : 'auto' }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-2 md:p-4 border-b border-zinc-700 bg-zinc-900">
+          <div className="flex items-center gap-2 md:gap-4">
+            <button
+              onClick={handlePrevMonth}
+              className="px-2 py-1 text-xs rounded bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 font-mono"
+            >
+              ←
+            </button>
+            <h2 className="text-sm md:text-xl font-semibold font-mono capitalize">{monthName}</h2>
+            <button
+              onClick={handleNextMonth}
+              className="px-2 py-1 text-xs rounded bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 font-mono"
+            >
+              →
+            </button>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleToday}
+              className="px-2 py-1 text-xs rounded bg-zinc-700 hover:bg-zinc-600 text-white font-mono"
+            >
+              {isMobile ? 'Now' : 'Today'}
+            </button>
+          </div>
         </div>
         
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleToday}
-            className="px-2 py-1 text-xs rounded bg-zinc-700 hover:bg-zinc-600 text-white font-mono"
-          >
-            {isMobile ? 'Now' : 'Today'}
-          </button>
+        {/* Days of week header */}
+        <div className="grid grid-cols-7 border-b border-zinc-700 bg-zinc-900/50">
+          {(isMobile ? ['M', 'T', 'W', 'T', 'F', 'S', 'S'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']).map((day, index) => (
+            <div
+              key={index}
+              className="p-2 text-center text-xs font-medium text-zinc-400 font-mono border-r border-zinc-700 last:border-r-0"
+            >
+              {day}
+            </div>
+          ))}
         </div>
-      </div>
-      
-      {/* Days of week header */}
-      <div className="grid grid-cols-7 border-b border-zinc-700 bg-zinc-900/50">
-        {(isMobile ? ['M', 'T', 'W', 'T', 'F', 'S', 'S'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']).map((day, index) => (
-          <div
-            key={index}
-            className="p-2 text-center text-xs font-medium text-zinc-400 font-mono border-r border-zinc-700 last:border-r-0"
-          >
-            {day}
-          </div>
-        ))}
-      </div>
-      
-      {/* Calendar grid */}
-      <div className="flex-1 grid grid-rows-6" style={{ userSelect: isDragging ? 'none' : 'auto' }}>
-        {weeks.map((week, weekIndex) => (
-          <div key={weekIndex} className="grid grid-cols-7 border-b border-zinc-700 last:border-b-0">
-            {week.map((date, dayIndex) => {
-              const dateKey = date.toISOString().slice(0, 10);
-              const dayEvents = eventsByDay.get(dateKey) || [];
-              const isCurrentMonth = date.getMonth() === viewDate.getMonth();
-              const isToday = isSameDay(date, today);
-              const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-              const inDragRange = isInDragRange(date);
-              
-              // Limit events for clean display
-              const maxEvents = isMobile ? 2 : 4;
-              const visibleEvents = dayEvents.slice(0, maxEvents);
-              const hiddenCount = Math.max(0, dayEvents.length - maxEvents);
-              
-              return (
-                <div
-                  key={`${weekIndex}-${dayIndex}`}
-                  data-date={dateKey}
-                  className={`
-                    border-r border-zinc-700 last:border-r-0 p-1 cursor-pointer select-none
-                    transition-colors hover:bg-zinc-900/30 font-mono
-                    ${isMobile ? 'h-16' : 'h-24 md:h-32'}
-                    ${!isCurrentMonth ? 'text-zinc-600 bg-zinc-900/20' : ''}
-                    ${isWeekend && isCurrentMonth ? 'bg-zinc-900/10' : ''}
-                    ${inDragRange ? 'bg-emerald-400/20 border-emerald-400/40' : ''}
-                  `}
-                  onClick={() => onDayClick?.(date)}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    onCreate?.(date);
-                  }}
-                  onMouseDown={(e) => {
-                    // Start drag for multi-day event creation
-                    if (onCreateMultiDay && e.detail !== 2) { // Not double-click
-                      e.preventDefault();
-                      setDragState({
-                        startDate: new Date(date),
-                        endDate: new Date(date),
-                        isActive: true
-                      });
-                      setIsDragging(true);
-                    }
-                  }}
-                  title={`${date.toLocaleDateString('ru-RU')} • ${dayEvents.length} events • Click: go to week • Double-click: create • Drag: multi-day`}
-                >
-                  {/* Date number */}
-                  <div className="flex items-center justify-between mb-1">
-                    <span
-                      className={`
-                        text-xs font-mono
-                        ${isToday 
-                          ? 'bg-blue-600 text-white rounded w-5 h-5 flex items-center justify-center text-[10px]' 
-                          : ''
-                        }
-                        ${!isCurrentMonth ? 'text-zinc-500' : ''}
-                      `}
-                    >
-                      {date.getDate()}
-                    </span>
-                    {dayEvents.length > 0 && (
-                      <span className="text-[10px] text-zinc-500 font-mono">
-                        {dayEvents.length}
+        
+        {/* Calendar grid */}
+        <div className="flex-1 grid grid-rows-6" style={{ userSelect: isDragging ? 'none' : 'auto' }}>
+          {weeks.map((week, weekIndex) => (
+            <div key={weekIndex} className="grid grid-cols-7 border-b border-zinc-700 last:border-b-0">
+              {week.map((date, dayIndex) => {
+                const dateKey = date.toISOString().slice(0, 10);
+                const dayEvents = eventsByDay.get(dateKey) || [];
+                const isCurrentMonth = date.getMonth() === viewDate.getMonth();
+                const isToday = isSameDay(date, today);
+                const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                const inDragRange = isInDragRange(date);
+                
+                // Limit events for clean display
+                const maxEvents = isMobile ? 2 : 4;
+                const visibleEvents = dayEvents.slice(0, maxEvents);
+                const hiddenCount = Math.max(0, dayEvents.length - maxEvents);
+                
+                return (
+                  <div
+                    key={`${weekIndex}-${dayIndex}`}
+                    data-date={dateKey}
+                    className={`
+                      border-r border-zinc-700 last:border-r-0 p-1 cursor-pointer select-none
+                      transition-colors hover:bg-zinc-900/30 font-mono
+                      ${isMobile ? 'h-16' : 'h-24 md:h-32'}
+                      ${!isCurrentMonth ? 'text-zinc-600 bg-zinc-900/20' : ''}
+                      ${isWeekend && isCurrentMonth ? 'bg-zinc-900/10' : ''}
+                      ${inDragRange ? 'bg-emerald-400/20 border-emerald-400/40' : ''}
+                    `}
+                    onClick={() => onDayClick?.(date)}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      onCreate?.(date);
+                    }}
+                    onMouseDown={(e) => {
+                      // Start drag for multi-day event creation
+                      if (onCreateMultiDay && e.detail !== 2) { // Not double-click
+                        e.preventDefault();
+                        setDragState({
+                          startDate: new Date(date),
+                          endDate: new Date(date),
+                          isActive: true
+                        });
+                        setIsDragging(true);
+                      }
+                    }}
+                    title={`${date.toLocaleDateString('ru-RU')} • ${dayEvents.length} events • Click: go to week • Double-click: create • Drag: multi-day`}
+                  >
+                    {/* Date number */}
+                    <div className="flex items-center justify-between mb-1">
+                      <span
+                        className={`
+                          text-xs font-mono
+                          ${isToday 
+                            ? 'bg-blue-600 text-white rounded w-5 h-5 flex items-center justify-center text-[10px]' 
+                            : ''
+                          }
+                          ${!isCurrentMonth ? 'text-zinc-500' : ''}
+                        `}
+                      >
+                        {date.getDate()}
                       </span>
+                      {dayEvents.length > 0 && (
+                        <span className="text-[10px] text-zinc-500 font-mono">
+                          {dayEvents.length}
+                        </span>
+                      )}
+                    </div>
+                    
+                    {/* Events */}
+                    {!isMobile && (
+                      <div className="space-y-0.5">
+                        {visibleEvents.map((event, eventIndex) => (
+                          <div
+                            key={`${event.id}-${eventIndex}`}
+                            className={`
+                              text-[10px] px-1 py-0.5 rounded truncate cursor-pointer font-mono
+                              transition-all hover:opacity-80
+                              ${selectedEventId === event.id 
+                                ? 'ring-1 ring-blue-400 bg-blue-600/90 text-white' 
+                                : 'bg-zinc-700/80 text-zinc-100 hover:bg-zinc-600/80'
+                              }
+                            `}
+                            style={{ 
+                              backgroundColor: selectedEventId === event.id 
+                                ? undefined 
+                                : (getEventColor(event) + '40')
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEventClick?.(event);
+                            }}
+                            title={`${event.title} • ${formatEventTime(event)}`}
+                          >
+                            <div className="flex items-center gap-1">
+                              {event.allDay && (
+                                <div className="w-1 h-1 rounded-full bg-white opacity-75" />
+                              )}
+                              <span className="truncate">
+                                {event.title || '(untitled)'}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                        
+                        {hiddenCount > 0 && (
+                          <div className="text-[10px] text-zinc-500 px-1 font-mono">
+                            +{hiddenCount}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Mobile: Show event dots only */}
+                    {isMobile && dayEvents.length > 0 && (
+                      <div className="flex gap-0.5 mt-1">
+                        {dayEvents.slice(0, 5).map((event, idx) => (
+                          <div
+                            key={idx}
+                            className="w-1.5 h-1.5 rounded-full"
+                            style={{ backgroundColor: getEventColor(event) }}
+                          />
+                        ))}
+                        {dayEvents.length > 5 && (
+                          <div className="text-[8px] text-zinc-500 ml-1">+{dayEvents.length - 5}</div>
+                        )}
+                      </div>
                     )}
                   </div>
-                  
-                  {/* Events */}
-                  {!isMobile && (
-                    <div className="space-y-0.5">
-                      {visibleEvents.map((event, eventIndex) => (
-                        <div
-                          key={`${event.id}-${eventIndex}`}
-                          className={`
-                            text-[10px] px-1 py-0.5 rounded truncate cursor-pointer font-mono
-                            transition-all hover:opacity-80
-                            ${selectedEventId === event.id 
-                              ? 'ring-1 ring-blue-400 bg-blue-600/90 text-white' 
-                              : 'bg-zinc-700/80 text-zinc-100 hover:bg-zinc-600/80'
-                            }
-                          `}
-                          style={{ 
-                            backgroundColor: selectedEventId === event.id 
-                              ? undefined 
-                              : (getEventColor(event) + '40')
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEventClick?.(event);
-                          }}
-                          title={`${event.title} • ${formatEventTime(event)}`}
-                        >
-                          <div className="flex items-center gap-1">
-                            {event.allDay && (
-                              <div className="w-1 h-1 rounded-full bg-white opacity-75" />
-                            )}
-                            <span className="truncate">
-                              {event.title || '(untitled)'}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                      
-                      {hiddenCount > 0 && (
-                        <div className="text-[10px] text-zinc-500 px-1 font-mono">
-                          +{hiddenCount}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  
-                  {/* Mobile: Show event dots only */}
-                  {isMobile && dayEvents.length > 0 && (
-                    <div className="flex gap-0.5 mt-1">
-                      {dayEvents.slice(0, 5).map((event, idx) => (
-                        <div
-                          key={idx}
-                          className="w-1.5 h-1.5 rounded-full"
-                          style={{ backgroundColor: getEventColor(event) }}
-                        />
-                      ))}
-                      {dayEvents.length > 5 && (
-                        <div className="text-[8px] text-zinc-500 ml-1">+{dayEvents.length - 5}</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-      
-      {/* Footer */}
-      <div className="p-2 border-t border-zinc-700 bg-zinc-900/50">
-        <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
-          <span>
-            {events.length} events this month
-          </span>
-          <div className="flex items-center gap-4">
-            <span>Click day: week view</span>
-            <span>Double-click: create</span>
-            {!isMobile && <span>Drag: multi-day</span>}
+                );
+              })}
+            </div>
+          ))}
+        </div>
+        
+        {/* Footer */}
+        <div className="p-2 border-t border-zinc-700 bg-zinc-900/50">
+          <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
+            <span>
+              {events.length} events this month
+            </span>
+            <div className="flex items-center gap-4">
+              <span>Click day: week view</span>
+              <span>Double-click: create</span>
+              {!isMobile && <span>Drag: multi-day</span>}
+            </div>
           </div>
         </div>
+        
+        {/* Multi-day drag ghost overlay */}
+        {dragState && isDragging && (
+          <div 
+            className="fixed pointer-events-none z-50"
+            style={{
+              left: 0,
+              top: 0,
+              width: '100%',
+              height: '100%'
+            }}
+            >
+            <div className="absolute bg-emerald-400/30 border-2 border-emerald-400 rounded animate-pulse" />
+          </div>
+        )}
       </div>
-      
-      {/* Multi-day drag ghost overlay */}
-      {dragState && isDragging && (
-        <div 
-          className="fixed pointer-events-none z-50"
-          style={{
-            left: 0,
-            top: 0,
-            width: '100%',
-            height: '100%'
-          }}
-        >
-          <div className="absolute bg-emerald-400/30 border-2 border-emerald-400 rounded animate-pulse" />
-        </div>
-      )}
     </div>
   );
 }

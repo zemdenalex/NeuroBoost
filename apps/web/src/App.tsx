@@ -159,6 +159,8 @@ export default function App() {
         allDay: false,
         description: task.description,
         tags: [...(task.tags || []), 'scheduled'],
+        taskId: task.id,  // ADD THIS LINE
+        sourceTaskId: task.id,  // ADD THIS LINE  
         reminders: [{
           minutesBefore: estimatedDuration <= 30 ? 3 : estimatedDuration <= 60 ? 5 : 15,
           channel: 'TELEGRAM' as const

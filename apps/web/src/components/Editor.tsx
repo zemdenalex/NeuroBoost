@@ -20,7 +20,6 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete }
   const [color, setColor] = useState('');
   const [reminderMinutes, setReminderMinutes] = useState(5);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  
   // Reflection fields
   const [showReflection, setShowReflection] = useState(false);
   const [focusPct, setFocusPct] = useState(75);
@@ -171,6 +170,11 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete }
     }
   };
 
+  const formatTimeForInput = (date: Date) => {
+    const mskDate = new Date(date.getTime() + 3 * 60 * 60 * 1000);
+    return mskDate.toISOString().slice(11, 16);
+  };
+
   return (
     <div 
       className="bg-zinc-900 border border-zinc-700 rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
@@ -188,9 +192,48 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete }
         </button>
       </div>
 
-      <div className="text-xs text-zinc-400 mb-4">
-        {formatTimeRange()}
+      {!isEditing || isAllDay ? (
+  <div className="text-xs text-zinc-400 mb-4">
+    {formatTimeRange()}
+  </div>
+  ) : (
+    <div className="grid grid-cols-2 gap-2 mb-4">
+      <div>
+        <label className="block text-xs text-zinc-400 mb-1">Start</label>
+        <input
+          type="time"
+          value={formatTimeForInput(range?.start || (draft ? new Date(draft.startUtc) : new Date()))}
+          onChange={(e) => {
+            // Handle time change logic
+            const [hours, minutes] = e.target.value.split(':').map(Number);
+            if (range) {
+              const newStart = new Date(range.start);
+              newStart.setHours(hours - 3, minutes, 0, 0); // Adjust for MSK
+              setRange({ ...range, start: newStart });
+            }
+          }}
+          className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm"
+        />
       </div>
+      <div>
+        <label className="block text-xs text-zinc-400 mb-1">End</label>
+        <input
+          type="time"
+          value={formatTimeForInput(range?.end || (draft ? new Date(draft.endUtc) : new Date()))}
+          onChange={(e) => {
+            // Handle time change logic
+            const [hours, minutes] = e.target.value.split(':').map(Number);
+            if (range) {
+              const newEnd = new Date(range.end);
+              newEnd.setHours(hours - 3, minutes, 0, 0); // Adjust for MSK
+              setRange({ ...range, end: newEnd });
+            }
+          }}
+          className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm"
+        />
+      </div>
+    </div>
+  )}
 
       <div className="space-y-4">
         <div>

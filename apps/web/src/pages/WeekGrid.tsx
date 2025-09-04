@@ -33,6 +33,19 @@ function minutesSinceMskMidnight(utcISO: string): number {
   return Math.max(0, Math.min(1440, Math.round((utcMs - baseUtc) / 60000)));
 }
 
+const [isMobile, setIsMobile] = useState(false);
+const [touchStart, setTouchStart] = useState<{x: number, y: number, time: number} | null>(null);
+
+useEffect(() => {
+  const checkMobile = () => {
+    const mobile = window.innerWidth < MOBILE_BREAKPOINT;
+    setIsMobile(mobile);
+  };
+  checkMobile();
+  window.addEventListener('resize', checkMobile);
+  return () => window.removeEventListener('resize', checkMobile);
+}, []);
+
 function getDaySpan(event: NbEvent): { startDay: number; endDay: number; spanDays: number } {
   const startDate = new Date(event.startUtc);
   const endDate = new Date(event.endUtc);
@@ -84,6 +97,7 @@ type DragCreate = {
   allDay: boolean;
   crossDay?: boolean;
 };
+
 type DragMove = { 
   kind: 'move'; 
   dayUtc0: number; 
@@ -96,7 +110,25 @@ type DragMove = {
   originalEnd: number;
   allDay: boolean;
 };
-type DragState = null | DragCreate | DragMove;
+
+// ADD THESE NEW TYPES:
+type DragResizeStart = { 
+  kind: 'resize-start'; 
+  dayUtc0: number; 
+  id: string; 
+  otherEndMin: number; 
+  curMin: number 
+};
+
+type DragResizeEnd = { 
+  kind: 'resize-end'; 
+  dayUtc0: number; 
+  id: string; 
+  otherEndMin: number; 
+  curMin: number 
+};
+
+type DragState = null | DragCreate | DragMove | DragResizeStart | DragResizeEnd;
 
 export function WeekGrid({ 
   events, 
@@ -311,6 +343,20 @@ export function WeekGrid({
           break;
         }
         
+        case 'resize-start': 
+        case 'resize-end': {
+          const startMin = Math.min(drag.curMin, drag.otherEndMin);
+          const endMin = Math.max(drag.curMin, drag.otherEndMin);
+          if (endMin > startMin) {
+            onMoveOrResize({
+              id: drag.id,
+              startUtc: new Date(drag.dayUtc0 + startMin * 60000).toISOString(),
+              endUtc: new Date(drag.dayUtc0 + endMin * 60000).toISOString()
+            });
+          }
+          break;
+        }
+
         case 'move': {
           const targetDay = drag.targetDayUtc0 || drag.dayUtc0;
           
@@ -630,6 +676,46 @@ export function WeekGrid({
                       allDay: false
                     });
                   }}
+                  
+                  onTouchStart={(e) => {
+                    const touch = e.touches[0];
+                    setTouchStart({ 
+                      x: touch.clientX, 
+                      y: touch.clientY, 
+                      time: Date.now() 
+                    });
+                  }}
+                  onTouchMove={(e) => {
+                    e.preventDefault(); // Prevent scrolling
+                  }}
+                  onTouchEnd={(e) => {
+                    if (!touchStart) return;
+                    
+                    const touch = e.changedTouches[0];
+                    const duration = Date.now() - touchStart.time;
+                    const distance = Math.sqrt(
+                      Math.pow(touch.clientX - touchStart.x, 2) + 
+                      Math.pow(touch.clientY - touchStart.y, 2)
+                    );
+                    
+                    // Long press to create (500ms)
+                    if (duration > 500 && distance < 20) {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const yLocal = touchStart.y - rect.top + (scrollContainerRef.current?.scrollTop ?? 0);
+                      const startMin = clampMins(snapMin(topToMins(yLocal)));
+                      
+                      setDrag({ 
+                        kind: 'create', 
+                        startDayUtc0: dayUtc0, 
+                        endDayUtc0: dayUtc0,
+                        startMin, 
+                        curMin: startMin,
+                        allDay: false
+                      });
+                    }
+                    
+                    setTouchStart(null);
+                  }}
                 >
                   {/* Hour grid */}
                   {Array.from({ length: isMobile ? 16 : 24 }, (_, h) => (
@@ -678,36 +764,59 @@ export function WeekGrid({
                             : 'border-zinc-600 bg-zinc-800/95 hover:bg-zinc-700/95 text-zinc-100 z-10'
                           }`}
                         style={{ top, height, left: 2, right: 2 }}
-                        onClick={(ev) => { 
-                          ev.stopPropagation(); 
-                          if (e.id) setSelectedId(e.id); 
-                        }}
                         onMouseDown={(ev) => {
                           if (!e.id) return;
 
                           const track = ev.currentTarget.parentElement;
                           const rect = track!.getBoundingClientRect();
+                          const eventRect = ev.currentTarget.getBoundingClientRect();
+                          const yInEvent = ev.clientY - eventRect.top;
+                          const isTopHandle = yInEvent < 8;  // ADD THIS
+                          const isBottomHandle = yInEvent > eventRect.height - 8;  // ADD THIS
                           dragMetaRef.current = {
                             colTop: rect.top,
                             scrollStart: scrollContainerRef.current?.scrollTop ?? 0
                           };
 
-                          setDrag({ 
-                            kind: 'move', 
-                            dayUtc0, 
-                            id: e.id, 
-                            offsetMin: startMin, 
-                            durMin: endMin - startMin,
-                            daySpan: 1,
-                            originalStart: startMin,
-                            originalEnd: endMin,
-                            allDay: false
-                          });
+                          if (isTopHandle) {  // ADD THIS BLOCK
+                            setDrag({ 
+                              kind: 'resize-start', 
+                              dayUtc0, 
+                              id: e.id, 
+                              otherEndMin: endMin, 
+                              curMin: startMin 
+                            });
+                          } else if (isBottomHandle) {  // ADD THIS BLOCK
+                            setDrag({ 
+                              kind: 'resize-end', 
+                              dayUtc0, 
+                              id: e.id, 
+                              otherEndMin: startMin, 
+                              curMin: endMin 
+                            });
+                          } else {
+                            // existing move logic
+                            setDrag({ 
+                              kind: 'move', 
+                              dayUtc0, 
+                              targetDayUtc0: dayUtc0,
+                              id: e.id, 
+                              offsetMin: startMin, 
+                              durMin: endMin - startMin,
+                              daySpan: 1,
+                              originalStart: startMin,
+                              originalEnd: endMin,
+                              allDay: false
+                            });
+                          }
                           ev.stopPropagation();
                         }}
                         onDoubleClick={() => onSelect(e)}
                         title={`${e.title} • ${isMobile ? 'Tap to edit' : 'Ctrl+Drag to move across days'}`}
                       >
+                        <div className="absolute left-0 right-0 h-2 top-0 cursor-ns-resize bg-transparent hover:bg-blue-400/20" />
+                        <div className="absolute left-0 right-0 h-2 bottom-0 cursor-ns-resize bg-transparent hover:bg-blue-400/20" />
+  
                         <div className="px-1 py-0.5 min-h-0 leading-tight">
                           <div className="font-semibold truncate text-[11px]">
                             {e.title || '(untitled)'}
