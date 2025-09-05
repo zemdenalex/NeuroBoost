@@ -280,21 +280,11 @@ export function WeekGrid({
           break;
           
         case 'move': {
-          if (ev.ctrlKey || ev.metaKey || drag.allDay) {
-            // Cross-day move enabled with Ctrl key or for all-day events
-            setDrag({ 
-              ...drag, 
-              offsetMin: drag.allDay ? 0 : clampMins(curMin - Math.round(drag.durMin / 2)),
-              targetDayUtc0: targetDayUtc0 || drag.dayUtc0
-            });
-          } else {
-            // Normal within-day move
-            const centerSnap = Math.round(drag.durMin / 2 / MIN_SLOT_MIN) * MIN_SLOT_MIN;
-            setDrag({ 
-              ...drag, 
-              offsetMin: clampMins(curMin - centerSnap)
-            });
-          }
+          setDrag({ 
+            ...drag, 
+            offsetMin: drag.allDay ? 0 : clampMins(curMin - Math.round(drag.durMin / 2)),
+            targetDayUtc0: targetDayUtc0 || drag.dayUtc0
+          });
           break;
         }
       }
@@ -759,8 +749,15 @@ export function WeekGrid({
                           const rect = track!.getBoundingClientRect();
                           const eventRect = ev.currentTarget.getBoundingClientRect();
                           const yInEvent = ev.clientY - eventRect.top;
-                          const isTopHandle = yInEvent < 8;  // ADD THIS
-                          const isBottomHandle = yInEvent > eventRect.height - 8;  // ADD THIS
+                          const isTopHandle = yInEvent < 8;  
+                          const isBottomHandle = yInEvent > eventRect.height - 8;
+
+                          // Add preventDefault for resize handles
+                          if (isTopHandle || isBottomHandle) {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                          }
+                          
                           dragMetaRef.current = {
                             colTop: rect.top,
                             scrollStart: scrollContainerRef.current?.scrollTop ?? 0
