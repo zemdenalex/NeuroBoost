@@ -280,6 +280,48 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-600 rounded text-white placeholder-zinc-400 focus:outline-none focus:border-zinc-400 font-mono"
               />
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Start Time</label>
+                <input
+                  type="time"
+                  value={range ? formatTimeForInput(range.start) : (draft ? formatTimeForInput(new Date(draft.startUtc)) : '')}
+                  onChange={(e) => {
+                    if (!range && !draft) return;
+                    const [hours, minutes] = e.target.value.split(':').map(Number);
+                    const currentStart = range?.start || (draft ? new Date(draft.startUtc) : new Date());
+                    const newStart = new Date(currentStart);
+                    newStart.setHours(hours - 3, minutes); // Convert from MSK to UTC
+                    
+                    if (onRangeChange && range) {
+                      onRangeChange({ start: newStart, end: range.end });
+                    }
+                  }}
+                  disabled={isAllDay}
+                  className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm focus:outline-none focus:border-zinc-400 disabled:opacity-50"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">End Time</label>
+                <input
+                  type="time"
+                  value={range ? formatTimeForInput(range.end) : (draft ? formatTimeForInput(new Date(draft.endUtc)) : '')}
+                  onChange={(e) => {
+                    if (!range && !draft) return;
+                    const [hours, minutes] = e.target.value.split(':').map(Number);
+                    const currentEnd = range?.end || (draft ? new Date(draft.endUtc) : new Date());
+                    const newEnd = new Date(currentEnd);
+                    newEnd.setHours(hours - 3, minutes); // Convert from MSK to UTC
+                    
+                    if (onRangeChange && range) {
+                      onRangeChange({ start: range.start, end: newEnd });
+                    }
+                  }}
+                  disabled={isAllDay}
+                  className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm focus:outline-none focus:border-zinc-400 disabled:opacity-50"
+                />
+              </div>
+            </div>
           </>
         )}
 

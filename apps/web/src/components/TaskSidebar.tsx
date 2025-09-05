@@ -219,7 +219,22 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
               .map(([priority, priorityTasks]) => (
                 <div key={priority} className="space-y-1">
                   {/* Priority Header */}
-                  <div className={`text-xs px-2 py-1 rounded font-semibold ${getPriorityColor(Number(priority))}`}>
+                  <div 
+                    className={`text-xs px-2 py-1 rounded font-semibold cursor-pointer ${getPriorityColor(Number(priority))}`}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      try {
+                        const dragData = JSON.parse(e.dataTransfer.getData('application/json'));
+                        if (dragData.type === 'task-priority-change') {
+                          await updateTask(dragData.taskId, { priority: Number(priority) });
+                          loadTasks();
+                        }
+                      } catch (error) {
+                        console.error('Failed to update task priority:', error);
+                      }
+                    }}
+                  >
                     {priority}: {getPriorityInfo(Number(priority)).name} ({priorityTasks.length})
                   </div>
                   
@@ -234,6 +249,15 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
                           type: 'task',
                           task
                         }));
+                        
+                        // Add secondary data for priority changes
+                        setTimeout(() => {
+                          e.dataTransfer.setData('application/json', JSON.stringify({
+                            type: 'task-priority-change',
+                            taskId: task.id,
+                            currentPriority: task.priority
+                          }));
+                        }, 0);
                       }}
                     >
                       <div className="flex items-start gap-2">

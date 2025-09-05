@@ -50,7 +50,7 @@ function getDaySpan(event: NbEvent): { startDay: number; endDay: number; spanDay
 const snapMin = (m: number) => Math.round(m / MIN_SLOT_MIN) * MIN_SLOT_MIN;
 const minsToTop = (m: number) => (m / 60) * HOUR_PX;
 const topToMins = (y: number) => (y / HOUR_PX) * 60;
-const clampMins = (m: number) => Math.max(0, Math.min(1440, m));
+const clampMins = (m: number) => Math.max(0, Math.min(1439, m));
 
 const mskDayLabel = (d: Date, short: boolean = false) => {
   if (short) {
@@ -174,19 +174,26 @@ export function WeekGrid({
 
   const { allDayEvents, timedEvents } = useMemo(() => {
     const allDay: Array<NbEvent & { span: { startDay: number; endDay: number; spanDays: number } }> = [];
-    const timed: Array<NbEvent & { top: number; height: number; dayUtc0: number }> = [];
+    const timed: Array<NbEvent & { top: number; height: number; dayUtc0: number; span?: { startDay: number; endDay: number; spanDays: number } }> = [];
     
     for (const e of events) {
       if (e.allDay) {
         const span = getDaySpan(e);
         allDay.push({ ...e, span });
       } else {
-        const startMin = minutesSinceMskMidnight(e.startUtc);
-        const endMin = Math.max(startMin + MIN_SLOT_MIN, minutesSinceMskMidnight(e.endUtc));
-        const top = minsToTop(startMin);
-        const height = Math.max(minsToTop(endMin - startMin), minsToTop(MIN_SLOT_MIN));
-        const bucketUtc0 = mskMidnightUtcMs(new Date(e.startUtc).getTime());
-        timed.push({ ...e, top, height, dayUtc0: bucketUtc0 });
+        const span = getDaySpan(e);
+        if (span.spanDays > 1) {
+          // Multi-day timed event - treat as all-day for display
+          allDay.push({ ...e, allDay: true, span });
+        } else {
+          // Single day timed event
+          const startMin = minutesSinceMskMidnight(e.startUtc);
+          const endMin = Math.max(startMin + MIN_SLOT_MIN, minutesSinceMskMidnight(e.endUtc));
+          const top = minsToTop(startMin);
+          const height = Math.max(minsToTop(endMin - startMin), minsToTop(MIN_SLOT_MIN));
+          const bucketUtc0 = mskMidnightUtcMs(new Date(e.startUtc).getTime());
+          timed.push({ ...e, top, height, dayUtc0: bucketUtc0 });
+        }
       }
     }
     
@@ -287,6 +294,11 @@ export function WeekGrid({
           });
           break;
         }
+        
+        case 'resize-start':
+        case 'resize-end':
+          setDrag({ ...drag, curMin });
+          break;
       }
     }
 
@@ -617,6 +629,21 @@ export function WeekGrid({
               />
             )}
           </div>
+
+          {/* Single-day all-day create ghost */}
+          {drag && drag.kind === 'create' && drag.allDay && !drag.crossDay && (
+            <div 
+              className="absolute bg-emerald-400/40 border border-emerald-400/60 pointer-events-none animate-pulse"
+              style={{
+                top: 20,
+                height: ALL_DAY_HEIGHT - 25,
+                left: `${(drag.startDayUtc0 - mondayUtc0) / DAY_MS / visibleDays * 100}%`,
+                width: `${100 / visibleDays}%`,
+                borderRadius: '6px',
+                zIndex: 40
+              }}
+            />
+          )}
 
           {/* Day columns with timed events */}
           {days.map(({ i, dayUtc0, dayMsk }) => {

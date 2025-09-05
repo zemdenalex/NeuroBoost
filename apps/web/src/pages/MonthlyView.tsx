@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import type { NbEvent } from '../types';
 
 const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MONTH_HEIGHT = 600; // Fixed height per month for consistent scrolling
 
 // Helper functions
 function getMonthStart(date: Date): Date {
@@ -107,6 +108,14 @@ type DragState = {
   isActive: boolean;
 } | null;
 
+type MonthData = {
+  monthStart: Date;
+  calendarStart: Date;
+  calendarEnd: Date;
+  weeks: Date[][];
+  offset: number; // relative to current month
+};
+
 export function MonthlyView({
   events,
   currentDate = new Date(),
@@ -122,8 +131,9 @@ export function MonthlyView({
   const [dragState, setDragState] = useState<DragState>(null);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [scrollContainer, setScrollContainer] = useState<HTMLDivElement | null>(null);
-  const [viewDate, setViewDate] = useState(currentDate);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [centerMonth, setCenterMonth] = useState(currentDate);
+  const [isScrolling, setIsScrolling] = useState(false);
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -132,84 +142,102 @@ export function MonthlyView({
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  useEffect(() => {
-    if (!scrollContainer) return;
+  // Generate 5 months: 2 before, current, 2 after
+  const monthsData = useMemo(() => {
+    const months: MonthData[] = [];
     
-    let scrollTimeout: NodeJS.Timeout;
-    const handleScroll = () => {
-      clearTimeout(scrollTimeout);
-      scrollTimeout = setTimeout(() => {
-        const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
-        const scrollPercent = scrollTop / (scrollHeight - clientHeight);
-        
-        // Auto-navigate months based on scroll position
-        if (scrollPercent > 0.8) {
-          handleNextMonth();
-        } else if (scrollPercent < 0.2 && scrollTop > 0) {
-          handlePrevMonth();
+    for (let offset = -2; offset <= 2; offset++) {
+      const monthDate = new Date(centerMonth);
+      monthDate.setMonth(monthDate.getMonth() + offset);
+      
+      const monthStart = getMonthStart(monthDate);
+      const calendarStart = getCalendarStart(monthStart);
+      const calendarEnd = getCalendarEnd(monthStart);
+      
+      // Generate 6 weeks of days (42 days total)
+      const weeks = [];
+      const current = new Date(calendarStart);
+      
+      for (let week = 0; week < 6; week++) {
+        const weekDays = [];
+        for (let day = 0; day < 7; day++) {
+          weekDays.push(new Date(current));
+          current.setDate(current.getDate() + 1);
         }
-      }, 150);
-    };
-    
-    scrollContainer.addEventListener('scroll', handleScroll);
-    return () => {
-      scrollContainer.removeEventListener('scroll', handleScroll);
-      clearTimeout(scrollTimeout);
-    };
-  }, [scrollContainer, viewDate]);
-
-  const { monthStart, calendarStart, calendarEnd, weeks } = useMemo(() => {
-    const monthStart = getMonthStart(viewDate);
-    const calendarStart = getCalendarStart(monthStart);
-    const calendarEnd = getCalendarEnd(monthStart);
-    
-    // Generate 6 weeks of days (42 days total)
-    const weeks = [];
-    const current = new Date(calendarStart);
-    
-    for (let week = 0; week < 6; week++) {
-      const weekDays = [];
-      for (let day = 0; day < 7; day++) {
-        weekDays.push(new Date(current));
-        current.setDate(current.getDate() + 1);
+        weeks.push(weekDays);
       }
-      weeks.push(weekDays);
+      
+      months.push({
+        monthStart,
+        calendarStart,
+        calendarEnd,
+        weeks,
+        offset
+      });
     }
     
-    return { monthStart, calendarStart, calendarEnd, weeks };
-  }, [viewDate]);
-  
+    return months;
+  }, [centerMonth]);
+
+  // Get events for all visible months
   const eventsByDay = useMemo(() => {
-    return getEventsByDay(events, calendarStart, calendarEnd);
-  }, [events, calendarStart, calendarEnd]);
-  
-  const today = new Date();
+    if (!monthsData.length) return new Map();
+    
+    const firstMonth = monthsData[0];
+    const lastMonth = monthsData[monthsData.length - 1];
+    
+    return getEventsByDay(events, firstMonth.calendarStart, lastMonth.calendarEnd);
+  }, [events, monthsData]);
+
+  // Handle continuous scrolling
+  const handleScroll = useCallback(() => {
+    if (!scrollContainerRef.current || isScrolling) return;
+    
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    const scrollPercent = scrollTop / (scrollHeight - clientHeight);
+    
+    // Determine which month is in center of viewport
+    const monthIndex = Math.round(scrollTop / MONTH_HEIGHT);
+    const targetMonthOffset = monthIndex - 2; // Center month should be at index 2
+    
+    if (targetMonthOffset !== 0) {
+      setIsScrolling(true);
+      
+      // Update center month
+      const newCenterMonth = new Date(centerMonth);
+      newCenterMonth.setMonth(newCenterMonth.getMonth() + targetMonthOffset);
+      setCenterMonth(newCenterMonth);
+      onDateChange?.(newCenterMonth);
+      
+      // Reset scroll position to center
+      setTimeout(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop = 2 * MONTH_HEIGHT;
+        }
+        setIsScrolling(false);
+      }, 50);
+    }
+  }, [centerMonth, onDateChange, isScrolling]);
 
   useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
     
+    // Set initial scroll position to show center month
+    scrollContainer.scrollTop = 2 * MONTH_HEIGHT;
+    
     let scrollTimeout: NodeJS.Timeout;
-    const handleScroll = () => {
+    const debouncedScroll = () => {
       clearTimeout(scrollTimeout);
-      scrollTimeout = setTimeout(() => {
-        const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
-        const scrollPercent = scrollTop / (scrollHeight - clientHeight);
-        
-        // Auto-navigate months based on scroll position
-        if (scrollPercent > 0.8) {
-          handleNextMonth();
-        } else if (scrollPercent < 0.2 && scrollTop > 0) {
-          handlePrevMonth();
-        }
-      }, 150);
+      scrollTimeout = setTimeout(handleScroll, 150);
     };
     
-    scrollContainer.addEventListener('scroll', handleScroll);
+    scrollContainer.addEventListener('scroll', debouncedScroll);
     return () => {
-      scrollContainer.removeEventListener('scroll', handleScroll);
+      scrollContainer.removeEventListener('scroll', debouncedScroll);
       clearTimeout(scrollTimeout);
     };
-  }, [scrollContainer, viewDate]);
+  }, [handleScroll]);
 
   // Handle drag for multi-day events
   useEffect(() => {
@@ -218,11 +246,9 @@ export function MonthlyView({
     function onMouseMove(ev: MouseEvent) {
       if (!dragState || !containerRef.current) return;
       
-      // Prevent text selection during drag
       ev.preventDefault();
       document.getSelection()?.removeAllRanges();
       
-      // Find which day cell the mouse is over
       const target = document.elementFromPoint(ev.clientX, ev.clientY);
       const dayCell = target?.closest('[data-date]');
       if (dayCell) {
@@ -241,10 +267,8 @@ export function MonthlyView({
       if (dragState && onCreateMultiDay) {
         const daysDiff = Math.floor((dragState.endDate.getTime() - dragState.startDate.getTime()) / DAY_MS);
         if (daysDiff >= 1) {
-          // Multi-day event
           onCreateMultiDay(dragState.startDate, dragState.endDate);
         } else if (daysDiff === 0) {
-          // Single day event
           onCreate?.(dragState.startDate);
         }
       }
@@ -267,30 +291,20 @@ export function MonthlyView({
     };
   }, [isDragging, dragState, onCreate, onCreateMultiDay]);
   
-  const handlePrevMonth = () => {
-    const newDate = new Date(viewDate);
-    newDate.setMonth(newDate.getMonth() - 1);
-    setViewDate(newDate);
-    onDateChange?.(newDate);
+  const today = new Date();
+
+  // Check if a date is in the drag range
+  const isInDragRange = (date: Date) => {
+    if (!dragState) return false;
+    const dateStart = new Date(date);
+    dateStart.setHours(0, 0, 0, 0);
+    const rangeStart = new Date(dragState.startDate);
+    rangeStart.setHours(0, 0, 0, 0);
+    const rangeEnd = new Date(dragState.endDate);
+    rangeEnd.setHours(0, 0, 0, 0);
+    
+    return dateStart.getTime() >= rangeStart.getTime() && dateStart.getTime() <= rangeEnd.getTime();
   };
-  
-  const handleNextMonth = () => {
-    const newDate = new Date(viewDate);
-    newDate.setMonth(newDate.getMonth() + 1);
-    setViewDate(newDate);
-    onDateChange?.(newDate);
-  };
-  
-  const handleToday = () => {
-    const today = new Date();
-    setViewDate(today);
-    onDateChange?.(today);
-  };
-  
-  const monthName = viewDate.toLocaleDateString('ru-RU', { 
-    month: 'long', 
-    year: 'numeric' 
-  });
   
   const formatEventTime = (event: NbEvent) => {
     if (event.allDay) return 'All day';
@@ -306,22 +320,11 @@ export function MonthlyView({
     return '#10B981'; // emerald
   };
 
-  // Check if a date is in the drag range
-  const isInDragRange = (date: Date) => {
-    if (!dragState) return false;
-    const time = date.getTime();
-    const startTime = dragState.startDate.getTime();
-    const endTime = dragState.endDate.getTime();
-    
-    // Normalize to start of day for comparison
-    const dateStart = new Date(date);
-    dateStart.setHours(0, 0, 0, 0);
-    const rangeStart = new Date(dragState.startDate);
-    rangeStart.setHours(0, 0, 0, 0);
-    const rangeEnd = new Date(dragState.endDate);
-    rangeEnd.setHours(0, 0, 0, 0);
-    
-    return dateStart.getTime() >= rangeStart.getTime() && dateStart.getTime() <= rangeEnd.getTime();
+  const getCurrentMonthName = () => {
+    return centerMonth.toLocaleDateString('ru-RU', { 
+      month: 'long', 
+      year: 'numeric' 
+    });
   };
   
   return (
@@ -330,14 +333,24 @@ export function MonthlyView({
       <div className="flex items-center justify-between p-2 md:p-4 border-b border-zinc-700 bg-zinc-900">
         <div className="flex items-center gap-2 md:gap-4">
           <button
-            onClick={handlePrevMonth}
+            onClick={() => {
+              const newMonth = new Date(centerMonth);
+              newMonth.setMonth(newMonth.getMonth() - 1);
+              setCenterMonth(newMonth);
+              onDateChange?.(newMonth);
+            }}
             className="px-2 py-1 text-xs rounded bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 font-mono"
           >
             ←
           </button>
-          <h2 className="text-sm md:text-xl font-semibold font-mono capitalize">{monthName}</h2>
+          <h2 className="text-sm md:text-xl font-semibold font-mono capitalize">{getCurrentMonthName()}</h2>
           <button
-            onClick={handleNextMonth}
+            onClick={() => {
+              const newMonth = new Date(centerMonth);
+              newMonth.setMonth(newMonth.getMonth() + 1);
+              setCenterMonth(newMonth);
+              onDateChange?.(newMonth);
+            }}
             className="px-2 py-1 text-xs rounded bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 font-mono"
           >
             →
@@ -346,7 +359,11 @@ export function MonthlyView({
         
         <div className="flex items-center gap-2">
           <button
-            onClick={handleToday}
+            onClick={() => {
+              const today = new Date();
+              setCenterMonth(today);
+              onDateChange?.(today);
+            }}
             className="px-2 py-1 text-xs rounded bg-zinc-700 hover:bg-zinc-600 text-white font-mono"
           >
             {isMobile ? 'Now' : 'Today'}
@@ -366,142 +383,185 @@ export function MonthlyView({
         ))}
       </div>
       
-      {/* Calendar grid */}
+      {/* Continuous scrolling calendar grid */}
       <div 
-        ref={setScrollContainer}
+        ref={scrollContainerRef}
         className="flex-1 overflow-y-auto" 
         style={{ userSelect: isDragging ? 'none' : 'auto' }}
       >
-        <div className="flex-1 grid grid-rows-6" style={{ userSelect: isDragging ? 'none' : 'auto' }}>
-          {weeks.map((week, weekIndex) => (
-            <div key={weekIndex} className="grid grid-cols-7 border-b border-zinc-700 last:border-b-0">
-              {week.map((date, dayIndex) => {
-                const dateKey = date.toISOString().slice(0, 10);
-                const dayEvents = eventsByDay.get(dateKey) || [];
-                const isCurrentMonth = date.getMonth() === viewDate.getMonth();
-                const isToday = isSameDay(date, today);
-                const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-                const inDragRange = isInDragRange(date);
-                
-                // Limit events for clean display
-                const maxEvents = isMobile ? 2 : 4;
-                const visibleEvents = dayEvents.slice(0, maxEvents);
-                const hiddenCount = Math.max(0, dayEvents.length - maxEvents);
-                
-                return (
-                  <div
-                    key={`${weekIndex}-${dayIndex}`}
-                    data-date={dateKey}
-                    className={`
-                      border-r border-zinc-700 last:border-r-0 p-1 cursor-pointer select-none
-                      transition-colors hover:bg-zinc-900/30 font-mono
-                      ${isMobile ? 'h-16' : 'h-24 md:h-32'}
-                      ${!isCurrentMonth ? 'text-zinc-600 bg-zinc-900/20' : ''}
-                      ${isWeekend && isCurrentMonth ? 'bg-zinc-900/10' : ''}
-                      ${inDragRange ? 'bg-emerald-400/20 border-emerald-400/40' : ''}
-                    `}
-                    onClick={() => onDayClick?.(date)}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      onCreate?.(date);
-                    }}
-                    onMouseDown={(e) => {
-                      // Start drag for multi-day event creation
-                      if (onCreateMultiDay && e.detail !== 2) { // Not double-click
-                        e.preventDefault();
-                        setDragState({
-                          startDate: new Date(date),
-                          endDate: new Date(date),
-                          isActive: true
-                        });
-                        setIsDragging(true);
-                      }
-                    }}
-                    title={`${date.toLocaleDateString('ru-RU')} • ${dayEvents.length} events • Click: go to week • Double-click: create • Drag: multi-day`}
-                  >
-                    {/* Date number */}
-                    <div className="flex items-center justify-between mb-1">
-                      <span
-                        className={`
-                          text-xs font-mono
-                          ${isToday 
-                            ? 'bg-blue-600 text-white rounded w-5 h-5 flex items-center justify-center text-[10px]' 
-                            : ''
-                          }
-                          ${!isCurrentMonth ? 'text-zinc-500' : ''}
-                        `}
-                      >
-                        {date.getDate()}
-                      </span>
-                      {dayEvents.length > 0 && (
-                        <span className="text-[10px] text-zinc-500 font-mono">
-                          {dayEvents.length}
-                        </span>
-                      )}
-                    </div>
-                    
-                    {/* Events */}
-                    {!isMobile && (
-                      <div className="space-y-0.5">
-                        {visibleEvents.map((event, eventIndex) => (
-                          <div
-                            key={`${event.id}-${eventIndex}`}
-                            className={`
-                              text-[10px] px-1 py-0.5 rounded truncate cursor-pointer font-mono
-                              transition-all hover:opacity-80
-                              ${selectedEventId === event.id 
-                                ? 'ring-1 ring-blue-400 bg-blue-600/90 text-white' 
-                                : 'bg-zinc-700/80 text-zinc-100 hover:bg-zinc-600/80'
-                              }
-                            `}
-                            style={{ 
-                              backgroundColor: selectedEventId === event.id 
-                                ? undefined 
-                                : (getEventColor(event) + '40')
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onEventClick?.(event);
-                            }}
-                            title={`${event.title} • ${formatEventTime(event)}`}
-                          >
-                            <div className="flex items-center gap-1">
-                              {event.allDay && (
-                                <div className="w-1 h-1 rounded-full bg-white opacity-75" />
-                              )}
-                              <span className="truncate">
-                                {event.title || '(untitled)'}
+        <div className="flex flex-col">
+          {monthsData.map((monthData, monthIndex) => (
+            <div 
+              key={`${monthData.monthStart.getFullYear()}-${monthData.monthStart.getMonth()}`}
+              className="border-b border-zinc-700"
+              style={{ minHeight: MONTH_HEIGHT }}
+            >
+              {/* Month label */}
+              <div className="p-2 bg-zinc-800/50 border-b border-zinc-700">
+                <h3 className="text-sm font-medium text-zinc-300 font-mono">
+                  {monthData.monthStart.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}
+                </h3>
+              </div>
+              
+              {/* Month grid */}
+              <div className="grid grid-rows-6">
+                {monthData.weeks.map((week, weekIndex) => (
+                  <div key={weekIndex} className="grid grid-cols-7 border-b border-zinc-700 last:border-b-0">
+                    {week.map((date, dayIndex) => {
+                      const dateKey = date.toISOString().slice(0, 10);
+                      const dayEvents = eventsByDay.get(dateKey) || [];
+                      const isCurrentMonth = date.getMonth() === monthData.monthStart.getMonth();
+                      const isToday = isSameDay(date, today);
+                      const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                      const inDragRange = isInDragRange(date);
+                      
+                      // Limit events for clean display
+                      const maxEvents = isMobile ? 2 : 3;
+                      const visibleEvents = dayEvents.slice(0, maxEvents);
+                      const hiddenCount = Math.max(0, dayEvents.length - maxEvents);
+                      
+                      return (
+                        <div
+                          key={`${weekIndex}-${dayIndex}`}
+                          data-date={dateKey}
+                          className={`
+                            border-r border-zinc-700 last:border-r-0 p-1 cursor-pointer select-none
+                            transition-colors hover:bg-zinc-900/30 font-mono
+                            ${isMobile ? 'h-16' : 'h-20'}
+                            ${!isCurrentMonth ? 'text-zinc-600 bg-zinc-900/20' : ''}
+                            ${isWeekend && isCurrentMonth ? 'bg-zinc-900/10' : ''}
+                            ${inDragRange ? 'bg-emerald-400/20 border-emerald-400/40' : ''}
+                            ${monthData.offset === 0 ? 'opacity-100' : 'opacity-75'}
+                          `}
+                          onClick={() => onDayClick?.(date)}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            onCreate?.(date);
+                          }}
+                          onMouseDown={(e) => {
+                            if (onCreateMultiDay && e.detail !== 2) {
+                              e.preventDefault();
+                              setDragState({
+                                startDate: new Date(date),
+                                endDate: new Date(date),
+                                isActive: true
+                              });
+                              setIsDragging(true);
+                            }
+                          }}
+                          title={`${date.toLocaleDateString('ru-RU')} • ${dayEvents.length} events • Click: go to week • Double-click: create • Drag: multi-day`}
+                        >
+                          {/* Date number */}
+                          <div className="flex items-center justify-between mb-1">
+                            <span
+                              className={`
+                                text-xs font-mono
+                                ${isToday 
+                                  ? 'bg-blue-600 text-white rounded w-5 h-5 flex items-center justify-center text-[10px]' 
+                                  : ''
+                                }
+                                ${!isCurrentMonth ? 'text-zinc-500' : ''}
+                              `}
+                            >
+                              {date.getDate()}
+                            </span>
+                            {dayEvents.length > 0 && (
+                              <span className="text-[10px] text-zinc-500 font-mono">
+                                {dayEvents.length}
                               </span>
+                            )}
+                          </div>
+                          
+                          {/* Events */}
+                          {!isMobile && (
+                            <div className="space-y-0.5">
+                              {visibleEvents.map((event: NbEvent, eventIndex: number) => {
+                                // Check if this is a multi-day event and which segment
+                                const eventStart = new Date(event.startUtc);
+                                const eventEnd = new Date(event.endUtc);
+                                const eventStartMsk = new Date(eventStart.getTime() + MSK_OFFSET_MS);
+                                const eventEndMsk = new Date(eventEnd.getTime() + MSK_OFFSET_MS);
+                                
+                                const isMultiDay = event.allDay && 
+                                  eventStartMsk.toDateString() !== eventEndMsk.toDateString();
+                                
+                                const isFirstDay = isMultiDay && 
+                                  date.toDateString() === eventStartMsk.toDateString();
+                                const isLastDay = isMultiDay && 
+                                  date.toDateString() === eventEndMsk.toDateString();
+                                const isMiddleDay = isMultiDay && !isFirstDay && !isLastDay;
+                                
+                                return (
+                                  <div
+                                    key={`${event.id}-${eventIndex}`}
+                                    className={`
+                                      text-[10px] px-1 py-0.5 truncate cursor-pointer font-mono
+                                      transition-all hover:opacity-80
+                                      ${selectedEventId === event.id 
+                                        ? 'ring-1 ring-blue-400 bg-blue-600/90 text-white' 
+                                        : 'bg-zinc-700/80 text-zinc-100 hover:bg-zinc-600/80'
+                                      }
+                                      ${isMultiDay ? (
+                                        isFirstDay ? 'rounded-l' :
+                                        isLastDay ? 'rounded-r' :
+                                        isMiddleDay ? 'rounded-none' : 'rounded'
+                                      ) : 'rounded'}
+                                    `}
+                                    style={{ 
+                                      backgroundColor: selectedEventId === event.id 
+                                        ? undefined 
+                                        : (getEventColor(event) + '40')
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onEventClick?.(event);
+                                    }}
+                                    title={`${event.title} • ${formatEventTime(event)}`}
+                                  >
+                                    <div className="flex items-center gap-1">
+                                      {event.allDay && (
+                                        <div className="w-1 h-1 rounded-full bg-white opacity-75" />
+                                      )}
+                                      <span className="truncate">
+                                        {isFirstDay || !isMultiDay ? (event.title || '(untitled)') : '···'}
+                                      </span>
+                                      {isMultiDay && isLastDay && (
+                                        <span className="text-[8px] opacity-75">→</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              
+                              {hiddenCount > 0 && (
+                                <div className="text-[10px] text-zinc-500 px-1 font-mono">
+                                  +{hiddenCount}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        ))}
-                        
-                        {hiddenCount > 0 && (
-                          <div className="text-[10px] text-zinc-500 px-1 font-mono">
-                            +{hiddenCount}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    
-                    {/* Mobile: Show event dots only */}
-                    {isMobile && dayEvents.length > 0 && (
-                      <div className="flex gap-0.5 mt-1">
-                        {dayEvents.slice(0, 5).map((event, idx) => (
-                          <div
-                            key={idx}
-                            className="w-1.5 h-1.5 rounded-full"
-                            style={{ backgroundColor: getEventColor(event) }}
-                          />
-                        ))}
-                        {dayEvents.length > 5 && (
-                          <div className="text-[8px] text-zinc-500 ml-1">+{dayEvents.length - 5}</div>
-                        )}
-                      </div>
-                    )}
+                          )}
+                          
+                          {/* Mobile: Show event dots only */}
+                          {isMobile && dayEvents.length > 0 && (
+                            <div className="flex gap-0.5 mt-1">
+                              {dayEvents.slice(0, 5).map((event: NbEvent, idx:number) => (
+                                <div
+                                  key={idx}
+                                  className="w-1.5 h-1.5 rounded-full"
+                                  style={{ backgroundColor: getEventColor(event) }}
+                                />
+                              ))}
+                              {dayEvents.length > 5 && (
+                                <div className="text-[8px] text-zinc-500 ml-1">+{dayEvents.length - 5}</div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                ))}
+              </div>
             </div>
           ))}
         </div>
@@ -511,7 +571,7 @@ export function MonthlyView({
       <div className="p-2 border-t border-zinc-700 bg-zinc-900/50">
         <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
           <span>
-            {events.length} events this month
+            Continuous scroll • {events.length} events total
           </span>
           <div className="flex items-center gap-4">
             <span>Click day: week view</span>
@@ -520,21 +580,6 @@ export function MonthlyView({
           </div>
         </div>
       </div>
-      
-      {/* Multi-day drag ghost overlay */}
-      {dragState && isDragging && (
-        <div 
-          className="fixed pointer-events-none z-50"
-          style={{
-            left: 0,
-            top: 0,
-            width: '100%',
-            height: '100%'
-          }}
-          >
-          <div className="absolute bg-emerald-400/30 border-2 border-emerald-400 rounded animate-pulse" />
-        </div>
-      )}
     </div>
   );
 }
