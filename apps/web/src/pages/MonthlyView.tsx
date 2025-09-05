@@ -325,53 +325,53 @@ export function MonthlyView({
   };
   
   return (
-    <div 
-      ref={setScrollContainer}
-      className="flex-1 grid grid-rows-6 overflow-y-auto"  // ADD overflow-y-auto
-      style={{ userSelect: isDragging ? 'none' : 'auto' }}
-    >
-      <div className="h-full flex flex-col bg-black text-zinc-100 font-mono" ref={containerRef}>
-        {/* Header */}
-        <div className="flex items-center justify-between p-2 md:p-4 border-b border-zinc-700 bg-zinc-900">
-          <div className="flex items-center gap-2 md:gap-4">
-            <button
-              onClick={handlePrevMonth}
-              className="px-2 py-1 text-xs rounded bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 font-mono"
-            >
-              ←
-            </button>
-            <h2 className="text-sm md:text-xl font-semibold font-mono capitalize">{monthName}</h2>
-            <button
-              onClick={handleNextMonth}
-              className="px-2 py-1 text-xs rounded bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 font-mono"
-            >
-              →
-            </button>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleToday}
-              className="px-2 py-1 text-xs rounded bg-zinc-700 hover:bg-zinc-600 text-white font-mono"
-            >
-              {isMobile ? 'Now' : 'Today'}
-            </button>
-          </div>
+    <div className="h-full flex flex-col bg-black text-zinc-100 font-mono" ref={containerRef}>
+      {/* Header */}
+      <div className="flex items-center justify-between p-2 md:p-4 border-b border-zinc-700 bg-zinc-900">
+        <div className="flex items-center gap-2 md:gap-4">
+          <button
+            onClick={handlePrevMonth}
+            className="px-2 py-1 text-xs rounded bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 font-mono"
+          >
+            ←
+          </button>
+          <h2 className="text-sm md:text-xl font-semibold font-mono capitalize">{monthName}</h2>
+          <button
+            onClick={handleNextMonth}
+            className="px-2 py-1 text-xs rounded bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 font-mono"
+          >
+            →
+          </button>
         </div>
         
-        {/* Days of week header */}
-        <div className="grid grid-cols-7 border-b border-zinc-700 bg-zinc-900/50">
-          {(isMobile ? ['M', 'T', 'W', 'T', 'F', 'S', 'S'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']).map((day, index) => (
-            <div
-              key={index}
-              className="p-2 text-center text-xs font-medium text-zinc-400 font-mono border-r border-zinc-700 last:border-r-0"
-            >
-              {day}
-            </div>
-          ))}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleToday}
+            className="px-2 py-1 text-xs rounded bg-zinc-700 hover:bg-zinc-600 text-white font-mono"
+          >
+            {isMobile ? 'Now' : 'Today'}
+          </button>
         </div>
-        
-        {/* Calendar grid */}
+      </div>
+      
+      {/* Days of week header */}
+      <div className="grid grid-cols-7 border-b border-zinc-700 bg-zinc-900/50">
+        {(isMobile ? ['M', 'T', 'W', 'T', 'F', 'S', 'S'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']).map((day, index) => (
+          <div
+            key={index}
+            className="p-2 text-center text-xs font-medium text-zinc-400 font-mono border-r border-zinc-700 last:border-r-0"
+          >
+            {day}
+          </div>
+        ))}
+      </div>
+      
+      {/* Calendar grid */}
+      <div 
+        ref={setScrollContainer}
+        className="flex-1 overflow-y-auto" 
+        style={{ userSelect: isDragging ? 'none' : 'auto' }}
+      >
         <div className="flex-1 grid grid-rows-6" style={{ userSelect: isDragging ? 'none' : 'auto' }}>
           {weeks.map((week, weekIndex) => (
             <div key={weekIndex} className="grid grid-cols-7 border-b border-zinc-700 last:border-b-0">
@@ -505,36 +505,36 @@ export function MonthlyView({
             </div>
           ))}
         </div>
-        
-        {/* Footer */}
-        <div className="p-2 border-t border-zinc-700 bg-zinc-900/50">
-          <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
-            <span>
-              {events.length} events this month
-            </span>
-            <div className="flex items-center gap-4">
-              <span>Click day: week view</span>
-              <span>Double-click: create</span>
-              {!isMobile && <span>Drag: multi-day</span>}
-            </div>
+      </div>
+      
+      {/* Footer */}
+      <div className="p-2 border-t border-zinc-700 bg-zinc-900/50">
+        <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
+          <span>
+            {events.length} events this month
+          </span>
+          <div className="flex items-center gap-4">
+            <span>Click day: week view</span>
+            <span>Double-click: create</span>
+            {!isMobile && <span>Drag: multi-day</span>}
           </div>
         </div>
-        
-        {/* Multi-day drag ghost overlay */}
-        {dragState && isDragging && (
-          <div 
-            className="fixed pointer-events-none z-50"
-            style={{
-              left: 0,
-              top: 0,
-              width: '100%',
-              height: '100%'
-            }}
-            >
-            <div className="absolute bg-emerald-400/30 border-2 border-emerald-400 rounded animate-pulse" />
-          </div>
-        )}
       </div>
+      
+      {/* Multi-day drag ghost overlay */}
+      {dragState && isDragging && (
+        <div 
+          className="fixed pointer-events-none z-50"
+          style={{
+            left: 0,
+            top: 0,
+            width: '100%',
+            height: '100%'
+          }}
+          >
+          <div className="absolute bg-emerald-400/30 border-2 border-emerald-400 rounded animate-pulse" />
+        </div>
+      )}
     </div>
   );
 }

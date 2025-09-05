@@ -153,14 +153,12 @@ export default function App() {
       const endTime = new Date(startTime.getTime() + estimatedDuration * 60 * 1000);
 
       const eventData: CreateEventBody = {
-        title: task.title,
+        title: `📋 ${task.title}`,  // Add emoji to distinguish scheduled tasks
         startsAt: startTime.toISOString(),
         endsAt: endTime.toISOString(),
         allDay: false,
-        description: task.description,
-        tags: [...(task.tags || []), 'scheduled'],
-        taskId: task.id,  // ADD THIS LINE
-        sourceTaskId: task.id,  // ADD THIS LINE  
+        description: task.description ? `From task: ${task.description}` : `Scheduled from task backlog`,
+        tags: [...(task.tags || []), 'scheduled', 'from-task'],
         reminders: [{
           minutesBefore: estimatedDuration <= 30 ? 3 : estimatedDuration <= 60 ? 5 : 15,
           channel: 'TELEGRAM' as const
@@ -371,6 +369,7 @@ export default function App() {
             onCreated={() => { setRange(null); refresh(); }}
             onPatched={() => { setDraft(null); refresh(); }}
             onDelete={onDelete}
+            onRangeChange={(newRange) => setRange(newRange)}
           />
         </div>
       )}

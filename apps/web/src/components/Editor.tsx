@@ -9,9 +9,10 @@ type EditorProps = {
   onCreated: () => void;
   onPatched: () => void;
   onDelete: (id: string) => Promise<void>;
+  onRangeChange?: (range: { start: Date; end: Date }) => void;
 };
 
-export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete }: EditorProps) {
+export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, onRangeChange }: EditorProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
