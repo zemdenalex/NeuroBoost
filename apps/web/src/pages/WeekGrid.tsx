@@ -83,6 +83,7 @@ type DragCreate = {
   curMin: number; 
   allDay: boolean;
   crossDay?: boolean;
+  isMultiDayTimed?: boolean; 
 };
 
 type DragMove = { 
@@ -277,12 +278,16 @@ export function WeekGrid({
 
       switch (drag.kind) {
         case 'create':
+          const isNowCrossDay = targetDayUtc0 !== drag.startDayUtc0;
+          const isNowMultiDayTimed = !isInAllDay && isNowCrossDay;
+          
           setDrag({ 
             ...drag, 
             curMin, 
             allDay: isInAllDay,
             endDayUtc0: targetDayUtc0 || drag.startDayUtc0,
-            crossDay: targetDayUtc0 !== drag.startDayUtc0
+            crossDay: isNowCrossDay,
+            isMultiDayTimed: isNowMultiDayTimed
           });
           break;
           
@@ -311,7 +316,19 @@ export function WeekGrid({
           const endDayUtc0 = Math.max(drag.startDayUtc0, drag.endDayUtc0);
           const daySpan = Math.floor((endDayUtc0 - startDayUtc0) / DAY_MS) + 1;
           
-          if (drag.allDay || drag.crossDay) {
+          if (drag.isMultiDayTimed) {
+            // Multi-day timed event
+            const startMin = Math.min(drag.startMin, drag.curMin);
+            const endMin = Math.max(drag.startMin, drag.curMin);
+            
+            onCreate({
+              startUtc: new Date(startDayUtc0 + startMin * 60000).toISOString(),
+              endUtc: new Date(endDayUtc0 + endMin * 60000).toISOString(),
+              allDay: false,
+              daySpan
+            });
+          } else if (drag.allDay || drag.crossDay) {
+            // All-day event
             onCreate({
               startUtc: new Date(startDayUtc0).toISOString(),
               endUtc: new Date(endDayUtc0 + DAY_MS - 1).toISOString(),
@@ -319,6 +336,7 @@ export function WeekGrid({
               daySpan
             });
           } else {
+            // Single day timed event
             const a = Math.min(drag.startMin, drag.curMin);
             const b = Math.max(drag.startMin, drag.curMin);
             if (b > a) {
@@ -332,7 +350,7 @@ export function WeekGrid({
           }
           break;
         }
-        
+                
         case 'resize-start': 
         case 'resize-end': {
           const startMin = Math.min(drag.curMin, drag.otherEndMin);
@@ -614,36 +632,53 @@ export function WeekGrid({
               })}
             </div>
             
-            {/* Multi-day create ghost */}
-            {drag && drag.kind === 'create' && drag.allDay && drag.crossDay && (
-              <div 
-                className="absolute bg-emerald-400/40 border border-emerald-400/60 pointer-events-none animate-pulse"
-                style={{
-                  top: 20,
-                  height: ALL_DAY_HEIGHT - 25,
-                  left: `${(Math.min(drag.startDayUtc0, drag.endDayUtc0) - mondayUtc0) / DAY_MS / 7 * 100}%`,
-                  right: `${100 - ((Math.max(drag.startDayUtc0, drag.endDayUtc0) - mondayUtc0) / DAY_MS + 1) / 7 * 100}%`,
-                  borderRadius: '6px',
-                  zIndex: 40
-                }}
-              />
-            )}
-          </div>
+            {/* Multi-day create ghost - with proper spacing and animation */}
+            {drag && drag.kind === 'create' && drag.allDay && drag.crossDay && (() => {
+              const startDayIndex = Math.max(0, Math.min(visibleDays - 1, 
+                Math.floor((Math.min(drag.startDayUtc0, drag.endDayUtc0) - mondayUtc0) / DAY_MS)));
+              const endDayIndex = Math.max(0, Math.min(visibleDays - 1, 
+                Math.floor((Math.max(drag.startDayUtc0, drag.endDayUtc0) - mondayUtc0) / DAY_MS)));
+              
+              const leftPercent = (startDayIndex / visibleDays) * 100;
+              const widthPercent = ((endDayIndex - startDayIndex + 1) / visibleDays) * 100;
+              
+              return (
+                <div 
+                  className="absolute bg-emerald-400/40 border border-emerald-400/60 pointer-events-none transition-all duration-150"
+                  style={{
+                    top: 25,
+                    height: ALL_DAY_HEIGHT - 30,
+                    left: `calc(${leftPercent}% + 4px)`,
+                    width: `calc(${widthPercent}% - 8px)`,
+                    borderRadius: '6px',
+                    zIndex: 40
+                  }}
+                />
+              );
+            })()}
 
-          {/* Single-day all-day create ghost */}
-          {drag && drag.kind === 'create' && drag.allDay && !drag.crossDay && (
-            <div 
-              className="absolute bg-emerald-400/40 border border-emerald-400/60 pointer-events-none animate-pulse"
-              style={{
-                top: 20,
-                height: ALL_DAY_HEIGHT - 25,
-                left: `${(drag.startDayUtc0 - mondayUtc0) / DAY_MS / visibleDays * 100}%`,
-                width: `${100 / visibleDays}%`,
-                borderRadius: '6px',
-                zIndex: 40
-              }}
-            />
-          )}
+            {/* Single-day all-day create ghost - with proper spacing */}
+            {drag && drag.kind === 'create' && drag.allDay && !drag.crossDay && (() => {
+              const dayIndex = Math.max(0, Math.min(visibleDays - 1, 
+                Math.floor((drag.startDayUtc0 - mondayUtc0) / DAY_MS)));
+              const leftPercent = (dayIndex / visibleDays) * 100;
+              const widthPercent = (1 / visibleDays) * 100;
+              
+              return (
+                <div 
+                  className="absolute bg-emerald-400/40 border border-emerald-400/60 pointer-events-none transition-all duration-150"
+                  style={{
+                    top: 25,
+                    height: ALL_DAY_HEIGHT - 30,
+                    left: `calc(${leftPercent}% + 4px)`,
+                    width: `calc(${widthPercent}% - 8px)`,
+                    borderRadius: '6px',
+                    zIndex: 40
+                  }}
+                />
+              );
+            })()}
+          </div>
 
           {/* Day columns with timed events */}
           {days.map(({ i, dayUtc0, dayMsk }) => {
@@ -858,6 +893,44 @@ export function WeekGrid({
                     );
                   })()}
 
+                  {/* Multi-day timed create ghost */}
+                  {drag && drag.kind === 'create' && drag.isMultiDayTimed && (
+                    drag.startDayUtc0 === dayUtc0 || drag.endDayUtc0 === dayUtc0 || 
+                    (dayUtc0 > Math.min(drag.startDayUtc0, drag.endDayUtc0) && 
+                    dayUtc0 < Math.max(drag.startDayUtc0, drag.endDayUtc0))
+                  ) && (() => {
+                    const isStartDay = drag.startDayUtc0 === dayUtc0;
+                    const isEndDay = drag.endDayUtc0 === dayUtc0;
+                    const isMiddleDay = !isStartDay && !isEndDay;
+                    
+                    let top, height;
+                    if (isStartDay) {
+                      top = minsToTop(Math.min(drag.startMin, drag.curMin));
+                      height = minsToTop(1440) - top; // To end of day
+                    } else if (isEndDay) {
+                      top = 0;
+                      height = minsToTop(Math.max(drag.startMin, drag.curMin));
+                    } else {
+                      top = 0;
+                      height = minsToTop(1440); // Full day
+                    }
+                    
+                    return (
+                      <div 
+                        className="absolute bg-purple-400/40 border border-purple-400/60 pointer-events-none z-30 animate-pulse"
+                        style={{ 
+                          top, 
+                          height, 
+                          left: isStartDay ? 2 : 0, 
+                          right: isEndDay ? 2 : 0,
+                          borderRadius: isStartDay && isEndDay ? '4px' :
+                                        isStartDay ? '4px 0 0 4px' :
+                                        isEndDay ? '0 4px 4px 0' : '0'
+                        }} 
+                      />
+                    );
+                  })()}
+
                   {/* Move ghost */}
                   {drag && drag.kind === 'move' && !drag.allDay && 
                    (drag.targetDayUtc0 === dayUtc0 || (!drag.targetDayUtc0 && drag.dayUtc0 === dayUtc0)) && (
@@ -871,6 +944,21 @@ export function WeekGrid({
                       }} 
                     />
                   )}
+
+                  {/* Resize ghost */}
+                  {drag && (drag.kind === 'resize-start' || drag.kind === 'resize-end') && 
+                  drag.dayUtc0 === dayUtc0 && (() => {
+                    const startMin = Math.min(drag.curMin, drag.otherEndMin);
+                    const endMin = Math.max(drag.curMin, drag.otherEndMin);
+                    const top = minsToTop(startMin);
+                    const height = Math.max(minsToTop(endMin - startMin), minsToTop(MIN_SLOT_MIN));
+                    return (
+                      <div 
+                        className="absolute bg-amber-400/40 border border-amber-400/60 rounded pointer-events-none z-30 animate-pulse"
+                        style={{ top, height, left: 2, right: 2 }} 
+                      />
+                    );
+                  })()}
                 </div>
               </div>
             );
