@@ -214,9 +214,11 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
           </div>
         ) : (
           <div className="p-2 space-y-2">
-            {Object.entries(tasksByPriority)
-              .sort(([a], [b]) => Number(a) - Number(b))
-              .map(([priority, priorityTasks]) => (
+            {/* Show ALL priorities (0-5), even if empty */}
+            {Array.from({ length: 6 }, (_, priority) => {
+              const priorityTasks = tasksByPriority[priority] || [];
+              
+              return (
                 <div key={priority} className="space-y-1"
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={async (e) => {
@@ -232,9 +234,11 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
                     }
                   }}
                 >
-                  {/* Priority Header */}
+                  {/* Priority Header - ALWAYS shown */}
                   <div 
-                    className={`text-xs px-2 py-1 rounded font-semibold cursor-pointer border-2 border-dashed border-transparent transition-colors ${getPriorityColor(Number(priority))}`}
+                    className={`text-xs px-2 py-1 rounded font-semibold cursor-pointer border-2 border-dashed transition-colors
+                      ${priorityTasks.length > 0 ? 'border-transparent' : 'border-zinc-600/50'} 
+                      ${getPriorityColor(priority)}`}
                     onDragOver={(e) => {
                       e.preventDefault();
                       // Only highlight when actually dragging something
@@ -255,8 +259,6 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
                         const jsonData = e.dataTransfer.getData('application/json');
                         const textData = e.dataTransfer.getData('text/plain');
                         
-                        console.log('Raw drop data:', { jsonData, textData }); // Debug log
-                        
                         // Parse the data - try text/plain first (our priority data)
                         if (textData) {
                           try {
@@ -268,24 +270,16 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
                           dragData = JSON.parse(jsonData);
                         }
                         
-                        console.log('Parsed drop data:', dragData); // Debug log
-                        
                         // Handle both priority change and task scheduling
                         if (dragData.type === 'task-priority-change' && dragData.taskId) {
                           const newPriority = Number(priority);
-                          console.log(`Updating task ${dragData.taskId} from priority ${dragData.currentPriority} to ${newPriority}`);
-                          
                           await updateTask(dragData.taskId, { priority: newPriority });
                           loadTasks();
-                          console.log('Task priority updated successfully');
                         } else if (dragData.type === 'task' && dragData.task) {
                           // Fallback: extract task ID from task object
                           const newPriority = Number(priority);
-                          console.log(`Updating task ${dragData.task.id} from priority ${dragData.task.priority} to ${newPriority}`);
-                          
                           await updateTask(dragData.task.id, { priority: newPriority });
                           loadTasks();
-                          console.log('Task priority updated successfully (fallback method)');
                         }
                       } catch (error) {
                         console.error('Failed to update task priority:', error);
@@ -293,10 +287,12 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
                     }}
                   >
                     {priority}: {getPriorityInfo(Number(priority)).name} ({priorityTasks.length})
-                    <span className="ml-2 text-[10px] opacity-50">Drop here</span>
+                    {priorityTasks.length === 0 && (
+                      <span className="ml-2 text-[10px] opacity-70">Drop tasks here</span>
+                    )}
                   </div>
                   
-                  {/* Tasks in this priority */}
+                  {/* Tasks in this priority - only show if there are any */}
                   {priorityTasks.map((task) => (
                     <div
                       key={task.id}
@@ -323,8 +319,6 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
                         e.dataTransfer.setData('text/plain', priorityData); // For priority change
                         
                         e.dataTransfer.effectAllowed = 'move';
-                        
-                        console.log('Drag data set:', { taskData, priorityData });
                       }}
                     >
                       <div className="flex items-start gap-2">
@@ -374,12 +368,9 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
                       </div>
                     </div>
                   ))}
-
-                  
                 </div>
-                
-              ))
-            }
+              );
+            })}
           </div>
         )}
       </div>
