@@ -217,18 +217,47 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
             {Object.entries(tasksByPriority)
               .sort(([a], [b]) => Number(a) - Number(b))
               .map(([priority, priorityTasks]) => (
-                <div key={priority} className="space-y-1">
+                <div key={priority} className="space-y-1"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    try {
+                      const dragData = JSON.parse(e.dataTransfer.getData('application/json'));
+                      if (dragData.type === 'task-priority-change' && dragData.taskId) {
+                        await updateTask(dragData.taskId, { priority: Number(priority) });
+                        loadTasks();
+                      }
+                    } catch (error) {
+                      console.error('Failed to update task priority:', error);
+                    }
+                  }}
+                >
                   {/* Priority Header */}
                   <div 
-                    className={`text-xs px-2 py-1 rounded font-semibold cursor-pointer ${getPriorityColor(Number(priority))}`}
-                    onDragOver={(e) => e.preventDefault()}
+                    className={`text-xs px-2 py-1 rounded font-semibold cursor-pointer border-2 border-dashed border-transparent hover:border-zinc-500 ${getPriorityColor(Number(priority))}`}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.add('border-zinc-400', 'bg-zinc-700/50');
+                    }}
+                    onDragLeave={(e) => {
+                      e.currentTarget.classList.remove('border-zinc-400', 'bg-zinc-700/50');
+                    }}
                     onDrop={async (e) => {
                       e.preventDefault();
+                      e.currentTarget.classList.remove('border-zinc-400', 'bg-zinc-700/50');
+                      
                       try {
                         const dragData = JSON.parse(e.dataTransfer.getData('application/json'));
-                        if (dragData.type === 'task-priority-change') {
-                          await updateTask(dragData.taskId, { priority: Number(priority) });
+                        console.log('Drop data:', dragData); // Debug log
+                        
+                        if (dragData.type === 'task-priority-change' && dragData.taskId) {
+                          const newPriority = Number(priority);
+                          console.log(`Updating task ${dragData.taskId} to priority ${newPriority}`); // Debug log
+                          
+                          await updateTask(dragData.taskId, { priority: newPriority });
                           loadTasks();
+                          
+                          console.log('Task priority updated successfully'); // Debug log
                         }
                       } catch (error) {
                         console.error('Failed to update task priority:', error);
@@ -236,6 +265,7 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
                     }}
                   >
                     {priority}: {getPriorityInfo(Number(priority)).name} ({priorityTasks.length})
+                    <span className="ml-2 text-[10px] opacity-50">Drop here</span>
                   </div>
                   
                   {/* Tasks in this priority */}
@@ -245,19 +275,27 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
                       className="group bg-zinc-800 hover:bg-zinc-700 rounded p-2 border border-zinc-700 hover:border-zinc-600"
                       draggable
                       onDragStart={(e) => {
-                        e.dataTransfer.setData('application/json', JSON.stringify({
+                        console.log('Dragging task:', task.id, 'current priority:', task.priority); // Debug log
+                        
+                        // Set data for both scheduling and priority change
+                        const taskData = JSON.stringify({
                           type: 'task',
                           task
-                        }));
+                        });
                         
-                        // Add secondary data for priority changes
-                        setTimeout(() => {
-                          e.dataTransfer.setData('application/json', JSON.stringify({
-                            type: 'task-priority-change',
-                            taskId: task.id,
-                            currentPriority: task.priority
-                          }));
-                        }, 0);
+                        const priorityData = JSON.stringify({
+                          type: 'task-priority-change',
+                          taskId: task.id,
+                          currentPriority: task.priority
+                        });
+                        
+                        e.dataTransfer.setData('application/json', taskData);
+                        e.dataTransfer.setData('text/plain', priorityData); // Backup format
+                        
+                        // Set effect
+                        e.dataTransfer.effectAllowed = 'move';
+                        
+                        console.log('Drag data set:', { taskData, priorityData }); // Debug log
                       }}
                     >
                       <div className="flex items-start gap-2">
@@ -307,7 +345,10 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
                       </div>
                     </div>
                   ))}
+
+                  
                 </div>
+                
               ))
             }
           </div>
