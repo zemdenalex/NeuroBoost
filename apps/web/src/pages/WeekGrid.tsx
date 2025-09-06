@@ -888,7 +888,7 @@ export function WeekGrid({
                     return (
                       <div 
                         className="absolute bg-emerald-400/40 border border-emerald-400/60 rounded pointer-events-none z-30 animate-pulse"
-                        style={{ top, height, left: 2, right: 2 }} 
+                        style={{ top, height, left: 2, right: 2, zIndex: 25 }} 
                       />
                     );
                   })()}
@@ -925,7 +925,8 @@ export function WeekGrid({
                           right: isEndDay ? 2 : 0,
                           borderRadius: isStartDay && isEndDay ? '4px' :
                                         isStartDay ? '4px 0 0 4px' :
-                                        isEndDay ? '0 4px 4px 0' : '0'
+                                        isEndDay ? '0 4px 4px 0' : '0',
+                          zIndex: 25
                         }} 
                       />
                     );
@@ -940,7 +941,8 @@ export function WeekGrid({
                         top: minsToTop(clampMins(snapMin(drag.offsetMin))), 
                         height: minsToTop(drag.durMin), 
                         left: 2, 
-                        right: 2 
+                        right: 2,
+                        zIndex: 25
                       }} 
                     />
                   )}
@@ -955,7 +957,7 @@ export function WeekGrid({
                     return (
                       <div 
                         className="absolute bg-amber-400/40 border border-amber-400/60 rounded pointer-events-none z-30 animate-pulse"
-                        style={{ top, height, left: 2, right: 2 }} 
+                        style={{ top, height, left: 2, right: 2, zIndex: 25 }} 
                       />
                     );
                   })()}

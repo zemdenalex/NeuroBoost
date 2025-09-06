@@ -234,10 +234,13 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
                 >
                   {/* Priority Header */}
                   <div 
-                    className={`text-xs px-2 py-1 rounded font-semibold cursor-pointer border-2 border-dashed border-transparent hover:border-zinc-500 ${getPriorityColor(Number(priority))}`}
+                    className={`text-xs px-2 py-1 rounded font-semibold cursor-pointer border-2 border-dashed border-transparent transition-colors ${getPriorityColor(Number(priority))}`}
                     onDragOver={(e) => {
                       e.preventDefault();
-                      e.currentTarget.classList.add('border-zinc-400', 'bg-zinc-700/50');
+                      // Only highlight when actually dragging something
+                      if (e.dataTransfer.types.includes('application/json')) {
+                        e.currentTarget.classList.add('border-zinc-400', 'bg-zinc-700/50');
+                      }
                     }}
                     onDragLeave={(e) => {
                       e.currentTarget.classList.remove('border-zinc-400', 'bg-zinc-700/50');
@@ -247,17 +250,42 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
                       e.currentTarget.classList.remove('border-zinc-400', 'bg-zinc-700/50');
                       
                       try {
-                        const dragData = JSON.parse(e.dataTransfer.getData('application/json'));
-                        console.log('Drop data:', dragData); // Debug log
+                        // Try to get the priority change data first
+                        let dragData;
+                        const jsonData = e.dataTransfer.getData('application/json');
+                        const textData = e.dataTransfer.getData('text/plain');
                         
+                        console.log('Raw drop data:', { jsonData, textData }); // Debug log
+                        
+                        // Parse the data - try text/plain first (our priority data)
+                        if (textData) {
+                          try {
+                            dragData = JSON.parse(textData);
+                          } catch {
+                            dragData = JSON.parse(jsonData);
+                          }
+                        } else {
+                          dragData = JSON.parse(jsonData);
+                        }
+                        
+                        console.log('Parsed drop data:', dragData); // Debug log
+                        
+                        // Handle both priority change and task scheduling
                         if (dragData.type === 'task-priority-change' && dragData.taskId) {
                           const newPriority = Number(priority);
-                          console.log(`Updating task ${dragData.taskId} to priority ${newPriority}`); // Debug log
+                          console.log(`Updating task ${dragData.taskId} from priority ${dragData.currentPriority} to ${newPriority}`);
                           
                           await updateTask(dragData.taskId, { priority: newPriority });
                           loadTasks();
+                          console.log('Task priority updated successfully');
+                        } else if (dragData.type === 'task' && dragData.task) {
+                          // Fallback: extract task ID from task object
+                          const newPriority = Number(priority);
+                          console.log(`Updating task ${dragData.task.id} from priority ${dragData.task.priority} to ${newPriority}`);
                           
-                          console.log('Task priority updated successfully'); // Debug log
+                          await updateTask(dragData.task.id, { priority: newPriority });
+                          loadTasks();
+                          console.log('Task priority updated successfully (fallback method)');
                         }
                       } catch (error) {
                         console.error('Failed to update task priority:', error);
@@ -275,27 +303,28 @@ export function TaskSidebar({ isOpen, onToggle, onDragToSchedule }: TaskSidebarP
                       className="group bg-zinc-800 hover:bg-zinc-700 rounded p-2 border border-zinc-700 hover:border-zinc-600"
                       draggable
                       onDragStart={(e) => {
-                        console.log('Dragging task:', task.id, 'current priority:', task.priority); // Debug log
+                        console.log('Dragging task:', task.id, 'current priority:', task.priority);
                         
-                        // Set data for both scheduling and priority change
+                        // Set task data for calendar scheduling
                         const taskData = JSON.stringify({
                           type: 'task',
                           task
                         });
                         
+                        // Set priority change data for task reordering
                         const priorityData = JSON.stringify({
                           type: 'task-priority-change',
                           taskId: task.id,
                           currentPriority: task.priority
                         });
                         
-                        e.dataTransfer.setData('application/json', taskData);
-                        e.dataTransfer.setData('text/plain', priorityData); // Backup format
+                        // Use different data transfer types
+                        e.dataTransfer.setData('application/json', taskData); // For calendar
+                        e.dataTransfer.setData('text/plain', priorityData); // For priority change
                         
-                        // Set effect
                         e.dataTransfer.effectAllowed = 'move';
                         
-                        console.log('Drag data set:', { taskData, priorityData }); // Debug log
+                        console.log('Drag data set:', { taskData, priorityData });
                       }}
                     >
                       <div className="flex items-start gap-2">
