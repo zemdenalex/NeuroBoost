@@ -21,13 +21,17 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
   const [color, setColor] = useState('');
   const [reminderMinutes, setReminderMinutes] = useState(5);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  // Reflection fields
   const [showReflection, setShowReflection] = useState(false);
   const [focusPct, setFocusPct] = useState(75);
   const [goalPct, setGoalPct] = useState(75);
   const [mood, setMood] = useState(7);
   const [reflectionNote, setReflectionNote] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+  const [startTimeLocal, setStartTimeLocal] = useState('');
+  const [endTimeLocal, setEndTimeLocal] = useState('');
+  const [startDateLocal, setStartDateLocal] = useState('');
+  const [endDateLocal, setEndDateLocal] = useState('');
+  const [timeValidation, setTimeValidation] = useState({ start: true, end: true });
 
   const isEditing = !!draft;
   const hasReflection = draft?.reflections && draft.reflections.length > 0;
@@ -143,37 +147,58 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
       onClose();
     }
   };
-
-  const formatTimeRange = () => {
-    if (!range && !draft) return '';
-    
-    const start = range?.start || (draft ? new Date(draft.startUtc) : new Date());
-    const end = range?.end || (draft ? new Date(draft.endUtc) : new Date());
-    
-    const mskOffset = 3 * 60 * 60 * 1000;
-    const startMsk = new Date(start.getTime() + mskOffset);
-    const endMsk = new Date(end.getTime() + mskOffset);
-    
-    const formatTime = (date: Date) => 
-      date.toISOString().slice(11, 16);
-    
-    const formatDate = (date: Date) => 
-      date.toISOString().slice(0, 10);
-
-    if (isAllDay || end.getTime() - start.getTime() >= 24 * 60 * 60 * 1000) {
-      if (formatDate(startMsk) === formatDate(endMsk)) {
-        return `${formatDate(startMsk)} (all day)`;
-      } else {
-        return `${formatDate(startMsk)} → ${formatDate(endMsk)}`;
-      }
-    } else {
-      return `${formatDate(startMsk)} ${formatTime(startMsk)}–${formatTime(endMsk)} MSK`;
+  
+  // Initialize local time values when draft/range changes
+  useEffect(() => {
+    if (draft) {
+      const startMsk = new Date(new Date(draft.startUtc).getTime() + 3 * 60 * 60 * 1000);
+      const endMsk = new Date(new Date(draft.endUtc).getTime() + 3 * 60 * 60 * 1000);
+      
+      setStartTimeLocal(startMsk.toISOString().slice(11, 16));
+      setEndTimeLocal(endMsk.toISOString().slice(11, 16));
+      setStartDateLocal(startMsk.toISOString().slice(0, 10));
+      setEndDateLocal(endMsk.toISOString().slice(0, 10));
+    } else if (range) {
+      const startMsk = new Date(range.start.getTime() + 3 * 60 * 60 * 1000);
+      const endMsk = new Date(range.end.getTime() + 3 * 60 * 60 * 1000);
+      
+      setStartTimeLocal(startMsk.toISOString().slice(11, 16));
+      setEndTimeLocal(endMsk.toISOString().slice(11, 16));
+      setStartDateLocal(startMsk.toISOString().slice(0, 10));
+      setEndDateLocal(endMsk.toISOString().slice(0, 10));
     }
+  }, [draft, range]);
+
+  // Validation function
+  const validateTime = (timeStr: string) => {
+    if (!timeStr) return false;
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return !isNaN(hours) && !isNaN(minutes) && hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
   };
 
-  const formatTimeForInput = (date: Date) => {
-    const mskDate = new Date(date.getTime() + 3 * 60 * 60 * 1000);
-    return mskDate.toISOString().slice(11, 16);
+  // Convert MSK to UTC
+  const mskToUtc = (dateStr: string, timeStr: string) => {
+    const mskDateTime = new Date(`${dateStr}T${timeStr}:00`);
+    return new Date(mskDateTime.getTime() - 3 * 60 * 60 * 1000);
+  };
+
+  // Update range helper
+  const updateTimes = () => {
+    if (!onRangeChange || !range) return;
+    
+    const startValid = validateTime(startTimeLocal);
+    const endValid = validateTime(endTimeLocal);
+    
+    setTimeValidation({ start: startValid, end: endValid });
+    
+    if (startValid && endValid) {
+      const newStart = mskToUtc(startDateLocal, startTimeLocal);
+      const newEnd = mskToUtc(endDateLocal, endTimeLocal);
+      
+      if (newEnd > newStart) {
+        onRangeChange({ start: newStart, end: newEnd });
+      }
+    }
   };
 
   return (
@@ -192,83 +217,78 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
           ×
         </button>
       </div>
-
-      <div className="text-xs text-zinc-400 mb-4">
-        {formatTimeRange()}
-      </div>
       
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="block text-xs text-zinc-400 mb-1">Start Time (MSK)</label>
-            <input
-              type="time"
-              value={(() => {
-                if (!range && !draft) return '';
-                const date = range?.start || (draft ? new Date(draft.startUtc) : new Date());
-                const mskDate = new Date(date.getTime() + 3 * 60 * 60 * 1000);
-                return mskDate.toISOString().slice(11, 16);
-              })()}
-              onChange={(e) => {
-                if (!range && !draft || !e.target.value) return;
-                
-                const [hours, minutes] = e.target.value.split(':').map(Number);
-                if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return;
-                
-                const currentStart = range?.start || (draft ? new Date(draft.startUtc) : new Date());
-                const currentEnd = range?.end || (draft ? new Date(draft.endUtc) : new Date());
-                
-                // Create MSK date and convert to UTC
-                const mskDate = new Date(currentStart.getTime() + 3 * 60 * 60 * 1000);
-                mskDate.setHours(hours, minutes, 0, 0);
-                const newStartUtc = new Date(mskDate.getTime() - 3 * 60 * 60 * 1000);
-                
-                // Maintain duration if possible
-                const duration = currentEnd.getTime() - currentStart.getTime();
-                const newEndUtc = new Date(newStartUtc.getTime() + duration);
-                
-                if (onRangeChange && range) {
-                  onRangeChange({ start: newStartUtc, end: newEndUtc });
-                }
-              }}
-              disabled={isAllDay}
-              className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm focus:outline-none focus:border-zinc-400 disabled:opacity-50"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-zinc-400 mb-1">End Time (MSK)</label>
-            <input
-              type="time"
-              value={(() => {
-                if (!range && !draft) return '';
-                const date = range?.end || (draft ? new Date(draft.endUtc) : new Date());
-                const mskDate = new Date(date.getTime() + 3 * 60 * 60 * 1000);
-                return mskDate.toISOString().slice(11, 16);
-              })()}
-              onChange={(e) => {
-                if (!range && !draft || !e.target.value) return;
-                
-                const [hours, minutes] = e.target.value.split(':').map(Number);
-                if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return;
-                
-                const currentStart = range?.start || (draft ? new Date(draft.startUtc) : new Date());
-                const currentEnd = range?.end || (draft ? new Date(draft.endUtc) : new Date());
-                
-                // Create MSK date and convert to UTC
-                const mskDate = new Date(currentEnd.getTime() + 3 * 60 * 60 * 1000);
-                mskDate.setHours(hours, minutes, 0, 0);
+        {!isAllDay && (
+          <>
+            {/* Date inputs for multi-day events */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Start Date</label>
+                <input
+                  type="date"
+                  value={startDateLocal}
+                  onChange={(e) => {
+                    setStartDateLocal(e.target.value);
+                    setTimeout(updateTimes, 0);
+                  }}
+                  className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm focus:outline-none focus:border-zinc-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">End Date</label>
+                <input
+                  type="date"
+                  value={endDateLocal}
+                  onChange={(e) => {
+                    setEndDateLocal(e.target.value);
+                    setTimeout(updateTimes, 0);
+                  }}
+                  className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm focus:outline-none focus:border-zinc-400"
+                />
+              </div>
+            </div>
+            
+            {/* Time inputs */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Start Time (MSK)</label>
+                <input
+                  type="time"
+                  value={startTimeLocal}
+                  onChange={(e) => {
+                    setStartTimeLocal(e.target.value);
+                    setTimeout(updateTimes, 0);
+                  }}
+                  className={`w-full px-2 py-1 bg-zinc-800 border rounded text-white text-sm focus:outline-none focus:border-zinc-400 ${
+                    timeValidation.start ? 'border-zinc-600' : 'border-red-500'
+                  }`}
+                />
+                {!timeValidation.start && (
+                  <div className="text-xs text-red-400 mt-1">Invalid time (00:00-23:59)</div>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">End Time (MSK)</label>
+                <input
+                  type="time"
+                  value={endTimeLocal}
+                  onChange={(e) => {
+                    setEndTimeLocal(e.target.value);
+                    setTimeout(updateTimes, 0);
+                  }}
+                  className={`w-full px-2 py-1 bg-zinc-800 border rounded text-white text-sm focus:outline-none focus:border-zinc-400 ${
+                    timeValidation.end ? 'border-zinc-600' : 'border-red-500'
+                  }`}
+                />
+                {!timeValidation.end && (
+                  <div className="text-xs text-red-400 mt-1">Invalid time (00:00-23:59)</div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
 
-                const newEndUtc = new Date(mskDate.getTime() - 3 * 60 * 60 * 1000) <= currentStart ? new Date(mskDate.getTime() - 3 * 60 * 60 * 1000) : new Date(mskDate.getTime() + 21 * 60 * 60 * 1000)     
-                
-                if (onRangeChange && range) {
-                  onRangeChange({ start: currentStart, end: newEndUtc });
-                }
-              }}
-              disabled={isAllDay}
-              className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm focus:outline-none focus:border-zinc-400 disabled:opacity-50"
-            />
-          </div>
-        </div>
         <div>
           <input
             type="text"
