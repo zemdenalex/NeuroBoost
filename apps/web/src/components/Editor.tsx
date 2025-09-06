@@ -70,6 +70,12 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
   const handleSave = async () => {
     if (!title.trim()) return;
 
+    // Validate times for non-all-day events
+    if (!isAllDay && (!timeValidation.start || !timeValidation.end)) {
+      alert('Please enter valid start and end times');
+      return;
+    }
+
     try {
       const tagsArray = tags.split(',').map(t => t.trim()).filter(Boolean);
       const reminderData = reminderMinutes > 0 ? [{
@@ -85,6 +91,17 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
           tags: tagsArray,
           color: color.trim() || undefined
         };
+
+        // Update times if they've changed and are valid
+        if (!isAllDay && timeValidation.start && timeValidation.end) {
+          const newStart = mskDateTimeToUtc(startDateLocal, startTimeLocal);
+          const newEnd = mskDateTimeToUtc(endDateLocal, endTimeLocal);
+          
+          if (newEnd > newStart) {
+            updates.startsAt = newStart.toISOString();
+            updates.endsAt = newEnd.toISOString();
+          }
+        }
 
         await patchEventUTC(draft.id, updates);
         
@@ -103,6 +120,7 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
         
         onPatched();
       } else if (range) {
+        // For new events, use the range (which should be updated by time inputs)
         const eventData: CreateEventBody = {
           title: title.trim(),
           startsAt: range.start.toISOString(),
@@ -151,29 +169,44 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
   // Initialize local time values when draft/range changes
   useEffect(() => {
     if (draft) {
-      const startMsk = new Date(new Date(draft.startUtc).getTime() + 3 * 60 * 60 * 1000);
-      const endMsk = new Date(new Date(draft.endUtc).getTime() + 3 * 60 * 60 * 1000);
+      const startMsk = utcToMskDateTime(new Date(draft.startUtc));
+      const endMsk = utcToMskDateTime(new Date(draft.endUtc));
       
-      setStartTimeLocal(startMsk.toISOString().slice(11, 16));
-      setEndTimeLocal(endMsk.toISOString().slice(11, 16));
-      setStartDateLocal(startMsk.toISOString().slice(0, 10));
-      setEndDateLocal(endMsk.toISOString().slice(0, 10));
+      setStartTimeLocal(startMsk.time);
+      setEndTimeLocal(endMsk.time);
+      setStartDateLocal(startMsk.date);
+      setEndDateLocal(endMsk.date);
+      setTimeValidation({ start: true, end: true });
     } else if (range) {
-      const startMsk = new Date(range.start.getTime() + 3 * 60 * 60 * 1000);
-      const endMsk = new Date(range.end.getTime() + 3 * 60 * 60 * 1000);
+      const startMsk = utcToMskDateTime(range.start);
+      const endMsk = utcToMskDateTime(range.end);
       
-      setStartTimeLocal(startMsk.toISOString().slice(11, 16));
-      setEndTimeLocal(endMsk.toISOString().slice(11, 16));
-      setStartDateLocal(startMsk.toISOString().slice(0, 10));
-      setEndDateLocal(endMsk.toISOString().slice(0, 10));
+      setStartTimeLocal(startMsk.time);
+      setEndTimeLocal(endMsk.time);
+      setStartDateLocal(startMsk.date);
+      setEndDateLocal(endMsk.date);
+      setTimeValidation({ start: true, end: true });
     }
   }, [draft, range]);
 
-  // Validation function
+  // Time edit helpers
   const validateTime = (timeStr: string) => {
-    if (!timeStr) return false;
+    if (!timeStr || !timeStr.match(/^\d{2}:\d{2}$/)) return false;
     const [hours, minutes] = timeStr.split(':').map(Number);
-    return !isNaN(hours) && !isNaN(minutes) && hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+    return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+  };
+
+  const utcToMskDateTime = (utcDate: Date) => {
+  const mskDate = new Date(utcDate.getTime() + 3 * 60 * 60 * 1000);
+  return {
+      date: mskDate.toISOString().slice(0, 10),
+      time: mskDate.toISOString().slice(11, 16)
+    };
+  };
+
+  const mskDateTimeToUtc = (date: string, time: string) => {
+    const mskDateTime = new Date(`${date}T${time}:00`);
+    return new Date(mskDateTime.getTime() - 3 * 60 * 60 * 1000);
   };
 
   // Convert MSK to UTC
@@ -201,6 +234,8 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
     }
   };
 
+  
+
   return (
     <div 
       className="bg-zinc-900 border border-zinc-700 rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
@@ -221,70 +256,110 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
       <div className="space-y-4">
         {!isAllDay && (
           <>
-            {/* Date inputs for multi-day events */}
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Start Date</label>
-                <input
-                  type="date"
-                  value={startDateLocal}
-                  onChange={(e) => {
-                    setStartDateLocal(e.target.value);
-                    setTimeout(updateTimes, 0);
-                  }}
-                  className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm focus:outline-none focus:border-zinc-400"
-                />
+            {/* Date and Time inputs */}
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    value={startDateLocal}
+                    onChange={(e) => {
+                      setStartDateLocal(e.target.value);
+                      // Auto-update range if editing existing event
+                      if (onRangeChange && range && validateTime(startTimeLocal) && validateTime(endTimeLocal)) {
+                        const newStart = mskDateTimeToUtc(e.target.value, startTimeLocal);
+                        const newEnd = mskDateTimeToUtc(endDateLocal, endTimeLocal);
+                        if (newEnd > newStart) {
+                          onRangeChange({ start: newStart, end: newEnd });
+                        }
+                      }
+                    }}
+                    className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm focus:outline-none focus:border-zinc-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">End Date</label>
+                  <input
+                    type="date"
+                    value={endDateLocal}
+                    onChange={(e) => {
+                      setEndDateLocal(e.target.value);
+                      // Auto-update range if editing existing event
+                      if (onRangeChange && range && validateTime(startTimeLocal) && validateTime(endTimeLocal)) {
+                        const newStart = mskDateTimeToUtc(startDateLocal, startTimeLocal);
+                        const newEnd = mskDateTimeToUtc(e.target.value, endTimeLocal);
+                        if (newEnd > newStart) {
+                          onRangeChange({ start: newStart, end: newEnd });
+                        }
+                      }
+                    }}
+                    className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm focus:outline-none focus:border-zinc-400"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">End Date</label>
-                <input
-                  type="date"
-                  value={endDateLocal}
-                  onChange={(e) => {
-                    setEndDateLocal(e.target.value);
-                    setTimeout(updateTimes, 0);
-                  }}
-                  className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm focus:outline-none focus:border-zinc-400"
-                />
+              
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Start Time (MSK)</label>
+                  <input
+                    type="time"
+                    value={startTimeLocal}
+                    onChange={(e) => {
+                      setStartTimeLocal(e.target.value);
+                      setTimeValidation(prev => ({ ...prev, start: validateTime(e.target.value) }));
+                      
+                      // Auto-update range if editing existing event
+                      if (onRangeChange && range && validateTime(e.target.value) && validateTime(endTimeLocal)) {
+                        const newStart = mskDateTimeToUtc(startDateLocal, e.target.value);
+                        const newEnd = mskDateTimeToUtc(endDateLocal, endTimeLocal);
+                        if (newEnd > newStart) {
+                          onRangeChange({ start: newStart, end: newEnd });
+                        }
+                      }
+                    }}
+                    className={`w-full px-2 py-1 bg-zinc-800 border rounded text-white text-sm focus:outline-none focus:border-zinc-400 ${
+                      timeValidation.start ? 'border-zinc-600' : 'border-red-500'
+                    }`}
+                  />
+                  {!timeValidation.start && startTimeLocal && (
+                    <div className="text-xs text-red-400 mt-1">Invalid time format</div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">End Time (MSK)</label>
+                  <input
+                    type="time"
+                    value={endTimeLocal}
+                    onChange={(e) => {
+                      setEndTimeLocal(e.target.value);
+                      setTimeValidation(prev => ({ ...prev, end: validateTime(e.target.value) }));
+                      
+                      // Auto-update range if editing existing event
+                      if (onRangeChange && range && validateTime(startTimeLocal) && validateTime(e.target.value)) {
+                        const newStart = mskDateTimeToUtc(startDateLocal, startTimeLocal);
+                        const newEnd = mskDateTimeToUtc(endDateLocal, e.target.value);
+                        if (newEnd > newStart) {
+                          onRangeChange({ start: newStart, end: newEnd });
+                        }
+                      }
+                    }}
+                    className={`w-full px-2 py-1 bg-zinc-800 border rounded text-white text-sm focus:outline-none focus:border-zinc-400 ${
+                      timeValidation.end ? 'border-zinc-600' : 'border-red-500'
+                    }`}
+                  />
+                  {!timeValidation.end && endTimeLocal && (
+                    <div className="text-xs text-red-400 mt-1">Invalid time format</div>
+                  )}
+                </div>
               </div>
-            </div>
-            
-            {/* Time inputs */}
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">Start Time (MSK)</label>
-                <input
-                  type="time"
-                  value={startTimeLocal}
-                  onChange={(e) => {
-                    setStartTimeLocal(e.target.value);
-                    setTimeout(updateTimes, 0);
-                  }}
-                  className={`w-full px-2 py-1 bg-zinc-800 border rounded text-white text-sm focus:outline-none focus:border-zinc-400 ${
-                    timeValidation.start ? 'border-zinc-600' : 'border-red-500'
-                  }`}
-                />
-                {!timeValidation.start && (
-                  <div className="text-xs text-red-400 mt-1">Invalid time (00:00-23:59)</div>
-                )}
-              </div>
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">End Time (MSK)</label>
-                <input
-                  type="time"
-                  value={endTimeLocal}
-                  onChange={(e) => {
-                    setEndTimeLocal(e.target.value);
-                    setTimeout(updateTimes, 0);
-                  }}
-                  className={`w-full px-2 py-1 bg-zinc-800 border rounded text-white text-sm focus:outline-none focus:border-zinc-400 ${
-                    timeValidation.end ? 'border-zinc-600' : 'border-red-500'
-                  }`}
-                />
-                {!timeValidation.end && (
-                  <div className="text-xs text-red-400 mt-1">Invalid time (00:00-23:59)</div>
-                )}
-              </div>
+              
+              {/* Multi-day indicator */}
+              {startDateLocal !== endDateLocal && (
+                <div className="text-xs text-purple-400 bg-purple-900/20 px-2 py-1 rounded">
+                  ✨ Multi-day event: {startDateLocal} {startTimeLocal} → {endDateLocal} {endTimeLocal}
+                </div>
+              )}
             </div>
           </>
         )}

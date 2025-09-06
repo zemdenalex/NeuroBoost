@@ -317,13 +317,19 @@ export function WeekGrid({
           const daySpan = Math.floor((endDayUtc0 - startDayUtc0) / DAY_MS) + 1;
           
           if (drag.isMultiDayTimed) {
-            // Multi-day timed event
-            const startMin = Math.min(drag.startMin, drag.curMin);
-            const endMin = Math.max(drag.startMin, drag.curMin);
+            // Multi-day timed event - preserve actual times across days
+            const startMin = drag.startDayUtc0 === startDayUtc0 ? drag.startMin : drag.curMin;
+            const endMin = drag.endDayUtc0 === endDayUtc0 ? drag.curMin : drag.startMin;
+            
+            // Ensure proper ordering of start/end times
+            const actualStartMin = drag.startDayUtc0 === startDayUtc0 ? 
+              Math.min(drag.startMin, drag.curMin) : Math.max(drag.startMin, drag.curMin);
+            const actualEndMin = drag.endDayUtc0 === endDayUtc0 ? 
+              Math.max(drag.startMin, drag.curMin) : Math.min(drag.startMin, drag.curMin);
             
             onCreate({
-              startUtc: new Date(startDayUtc0 + startMin * 60000).toISOString(),
-              endUtc: new Date(endDayUtc0 + endMin * 60000).toISOString(),
+              startUtc: new Date(startDayUtc0 + actualStartMin * 60000).toISOString(),
+              endUtc: new Date(endDayUtc0 + actualEndMin * 60000).toISOString(),
               allDay: false,
               daySpan
             });
@@ -899,36 +905,61 @@ export function WeekGrid({
                     (dayUtc0 > Math.min(drag.startDayUtc0, drag.endDayUtc0) && 
                     dayUtc0 < Math.max(drag.startDayUtc0, drag.endDayUtc0))
                   ) && (() => {
-                    const isStartDay = drag.startDayUtc0 === dayUtc0;
-                    const isEndDay = drag.endDayUtc0 === dayUtc0;
+                    const startDayUtc0 = Math.min(drag.startDayUtc0, drag.endDayUtc0);
+                    const endDayUtc0 = Math.max(drag.startDayUtc0, drag.endDayUtc0);
+                    
+                    const isStartDay = startDayUtc0 === dayUtc0;
+                    const isEndDay = endDayUtc0 === dayUtc0;
                     const isMiddleDay = !isStartDay && !isEndDay;
                     
                     let top, height;
                     if (isStartDay) {
-                      top = minsToTop(Math.min(drag.startMin, drag.curMin));
+                      // Show from start time to end of day
+                      const startMin = drag.startDayUtc0 === startDayUtc0 ? drag.startMin : drag.curMin;
+                      top = minsToTop(startMin);
                       height = minsToTop(1440) - top; // To end of day
                     } else if (isEndDay) {
+                      // Show from start of day to end time  
+                      const endMin = drag.endDayUtc0 === dayUtc0 ? drag.curMin : drag.startMin;
                       top = 0;
-                      height = minsToTop(Math.max(drag.startMin, drag.curMin));
+                      height = minsToTop(endMin);
                     } else {
+                      // Full day for middle days
                       top = 0;
-                      height = minsToTop(1440); // Full day
+                      height = minsToTop(1440);
                     }
                     
                     return (
                       <div 
-                        className="absolute bg-purple-400/40 border border-purple-400/60 pointer-events-none z-30 animate-pulse"
+                        className="absolute bg-purple-400/40 border border-purple-400/60 pointer-events-none z-30"
                         style={{ 
                           top, 
                           height, 
-                          left: isStartDay ? 2 : 0, 
-                          right: isEndDay ? 2 : 0,
+                          left: 2, 
+                          right: 2,
                           borderRadius: isStartDay && isEndDay ? '4px' :
-                                        isStartDay ? '4px 0 0 4px' :
-                                        isEndDay ? '0 4px 4px 0' : '0',
+                                        isStartDay ? '4px 4px 0 0' :
+                                        isEndDay ? '0 0 4px 4px' : '0',
                           zIndex: 25
                         }} 
-                      />
+                      >
+                        {/* Add time labels for clarity */}
+                        {isStartDay && (
+                          <div className="absolute top-1 left-1 text-[10px] text-purple-100 bg-purple-800/80 px-1 rounded">
+                            {Math.floor(drag.startMin / 60).toString().padStart(2, '0')}:{(drag.startMin % 60).toString().padStart(2, '0')}
+                          </div>
+                        )}
+                        {isEndDay && (
+                          <div className="absolute bottom-1 right-1 text-[10px] text-purple-100 bg-purple-800/80 px-1 rounded">
+                            {Math.floor(drag.curMin / 60).toString().padStart(2, '0')}:{(drag.curMin % 60).toString().padStart(2, '0')}
+                          </div>
+                        )}
+                        {isMiddleDay && (
+                          <div className="absolute inset-x-2 top-2 text-[10px] text-purple-100 bg-purple-800/80 px-1 rounded text-center">
+                            continues...
+                          </div>
+                        )}
+                      </div>
                     );
                   })()}
 
