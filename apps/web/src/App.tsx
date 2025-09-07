@@ -37,19 +37,22 @@ export default function App() {
   }
 
   function monthRangeUtc(date: Date): { start: string; end: string } {
+    const mskOffset = 3 * 60 * 60 * 1000;
+    // start at the Monday three weeks before the first of the month
     const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
-    const calendarStart = new Date(monthStart);
-    const startDayOfWeek = (monthStart.getDay() + 6) % 7;
-    calendarStart.setDate(calendarStart.getDate() - startDayOfWeek);
+    const rangeStart = new Date(monthStart);
+    rangeStart.setDate(rangeStart.getDate() - 21);
+    rangeStart.setHours(0,0,0,0);
+    // end at the Sunday three weeks after the end of the month
     const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-    const calendarEnd = new Date(monthEnd);
-    const endDayOfWeek = (monthEnd.getDay() + 6) % 7;
-    calendarEnd.setDate(calendarEnd.getDate() + (6 - endDayOfWeek));
-    calendarEnd.setHours(23, 59, 59, 999);
-    const startUtc = new Date(calendarStart.getTime() - 3 * 60 * 60 * 1000);
-    const endUtc = new Date(calendarEnd.getTime() - 3 * 60 * 60 * 1000);
+    const rangeEnd = new Date(monthEnd);
+    rangeEnd.setDate(rangeEnd.getDate() + 21);
+    rangeEnd.setHours(23,59,59,999);
+    const startUtc = new Date(rangeStart.getTime() - mskOffset);
+    const endUtc   = new Date(rangeEnd.getTime() - mskOffset);
     return { start: startUtc.toISOString(), end: endUtc.toISOString() };
   }
+
 
   async function refresh() {
     try {
