@@ -4,7 +4,7 @@ import type { NbEvent } from '../types';
 const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_HEIGHT = 110;
-const BUFFER_WEEKS = 52; // Show 1 year above and below current
+const BUFFER_WEEKS = 12; // Show 1 year above and below current
 
 // Helper functions
 function getWeekStart(date: Date): Date {

@@ -94,8 +94,8 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
 
         // Update times if they've changed and are valid
         if (!isAllDay && timeValidation.start && timeValidation.end) {
-          const newStart = mskDateTimeToUtc(startDateLocal, startTimeLocal);
-          const newEnd = mskDateTimeToUtc(endDateLocal, endTimeLocal);
+          const newStart = toUtc(startDateLocal, startTimeLocal);
+          const newEnd = toUtc(endDateLocal, endTimeLocal);
           
           if (newEnd > newStart) {
             updates.startsAt = newStart.toISOString();
@@ -204,16 +204,11 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
     };
   };
 
-  const mskDateTimeToUtc = (date: string, time: string) => {
-    const mskDateTime = new Date(`${date}T${time}:00`);
-    return new Date(mskDateTime.getTime() - 3 * 60 * 60 * 1000);
-  };
-
-  // Convert MSK to UTC
-  const mskToUtc = (dateStr: string, timeStr: string) => {
+  const toUtc = (dateStr: string, timeStr: string) => {
     const mskDateTime = new Date(`${dateStr}T${timeStr}:00`);
     return new Date(mskDateTime.getTime() - 3 * 60 * 60 * 1000);
   };
+
 
   // Update range helper
   const updateTimes = () => {
@@ -225,8 +220,8 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
     setTimeValidation({ start: startValid, end: endValid });
     
     if (startValid && endValid) {
-      const newStart = mskToUtc(startDateLocal, startTimeLocal);
-      const newEnd = mskToUtc(endDateLocal, endTimeLocal);
+      const newStart = toUtc(startDateLocal, startTimeLocal);
+      const newEnd = toUtc(endDateLocal, endTimeLocal);
       
       if (newEnd > newStart) {
         onRangeChange({ start: newStart, end: newEnd });
@@ -268,11 +263,15 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
                       setStartDateLocal(e.target.value);
                       // Auto-update range if editing existing event
                       if (onRangeChange && range && validateTime(startTimeLocal) && validateTime(endTimeLocal)) {
-                        const newStart = mskDateTimeToUtc(e.target.value, startTimeLocal);
-                        const newEnd = mskDateTimeToUtc(endDateLocal, endTimeLocal);
-                        if (newEnd > newStart) {
-                          onRangeChange({ start: newStart, end: newEnd });
+                        const newStart = toUtc(startDateLocal, startTimeLocal);
+                        let newEnd = toUtc(endDateLocal, endTimeLocal);
+                        if (newEnd <= newStart) {
+                            // user likely meant next day
+                            const nextDay = new Date(endDateLocal);
+                            nextDay.setDate(nextDay.getDate() + 1);
+                            newEnd = toUtc(nextDay.toISOString().slice(0, 10), endTimeLocal);
                         }
+                        if (newEnd > newStart) onRangeChange({ start: newStart, end: newEnd });
                       }
                     }}
                     className="w-full px-2 py-1 bg-zinc-800 border border-zinc-600 rounded text-white text-sm focus:outline-none focus:border-zinc-400"
@@ -287,8 +286,8 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
                       setEndDateLocal(e.target.value);
                       // Auto-update range if editing existing event
                       if (onRangeChange && range && validateTime(startTimeLocal) && validateTime(endTimeLocal)) {
-                        const newStart = mskDateTimeToUtc(startDateLocal, startTimeLocal);
-                        const newEnd = mskDateTimeToUtc(e.target.value, endTimeLocal);
+                        const newStart = toUtc(startDateLocal, startTimeLocal);
+                        const newEnd = toUtc(e.target.value, endTimeLocal);
                         if (newEnd > newStart) {
                           onRangeChange({ start: newStart, end: newEnd });
                         }
@@ -311,8 +310,8 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
                       
                       // Auto-update range if editing existing event
                       if (onRangeChange && range && validateTime(e.target.value) && validateTime(endTimeLocal)) {
-                        const newStart = mskDateTimeToUtc(startDateLocal, e.target.value);
-                        const newEnd = mskDateTimeToUtc(endDateLocal, endTimeLocal);
+                        const newStart = toUtc(startDateLocal, e.target.value);
+                        const newEnd = toUtc(endDateLocal, endTimeLocal);
                         if (newEnd > newStart) {
                           onRangeChange({ start: newStart, end: newEnd });
                         }
@@ -337,8 +336,8 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
                       
                       // Auto-update range if editing existing event
                       if (onRangeChange && range && validateTime(startTimeLocal) && validateTime(e.target.value)) {
-                        const newStart = mskDateTimeToUtc(startDateLocal, startTimeLocal);
-                        const newEnd = mskDateTimeToUtc(endDateLocal, e.target.value);
+                        const newStart = toUtc(startDateLocal, startTimeLocal);
+                        const newEnd = toUtc(endDateLocal, e.target.value);
                         if (newEnd > newStart) {
                           onRangeChange({ start: newStart, end: newEnd });
                         }

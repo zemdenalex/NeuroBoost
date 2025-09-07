@@ -317,23 +317,24 @@ export function WeekGrid({
           const daySpan = Math.floor((endDayUtc0 - startDayUtc0) / DAY_MS) + 1;
           
           if (drag.isMultiDayTimed) {
-            // Multi-day timed event - preserve actual times across days
-            const startMin = drag.startDayUtc0 === startDayUtc0 ? drag.startMin : drag.curMin;
-            const endMin = drag.endDayUtc0 === endDayUtc0 ? drag.curMin : drag.startMin;
-            
-            // Ensure proper ordering of start/end times
-            const actualStartMin = drag.startDayUtc0 === startDayUtc0 ? 
-              Math.min(drag.startMin, drag.curMin) : Math.max(drag.startMin, drag.curMin);
-            const actualEndMin = drag.endDayUtc0 === endDayUtc0 ? 
-              Math.max(drag.startMin, drag.curMin) : Math.min(drag.startMin, drag.curMin);
-            
+            // compute absolute UTC timestamps for start and end
+            const startStamp = new Date(drag.startDayUtc0 + drag.startMin * 60_000);
+            const endStamp   = new Date(drag.endDayUtc0 + drag.curMin   * 60_000);
+            let actualStart = startStamp;
+            let actualEnd   = endStamp;
+            // swap if reversed
+            if (actualEnd < actualStart) {
+                const tmp = actualStart;
+                actualStart = actualEnd;
+                actualEnd = tmp;
+            }
             onCreate({
-              startUtc: new Date(startDayUtc0 + actualStartMin * 60000).toISOString(),
-              endUtc: new Date(endDayUtc0 + actualEndMin * 60000).toISOString(),
-              allDay: false,
-              daySpan
+                startUtc: actualStart.toISOString(),
+                endUtc: actualEnd.toISOString(),
+                allDay: false,
+                daySpan,
             });
-          } else if (drag.allDay || drag.crossDay) {
+        } else if (drag.allDay || drag.crossDay) {
             // All-day event
             onCreate({
               startUtc: new Date(startDayUtc0).toISOString(),
