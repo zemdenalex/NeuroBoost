@@ -1,7 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import type { NbEvent, Task } from '../types';
 import { DeadlineTasks } from '../components/DeadlineTasks';
-import { getTasks } from '../api';
 
 const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -103,7 +102,6 @@ type DragMove = {
   allDay: boolean;
 };
 
-// ADD THESE NEW TYPES:
 type DragResizeStart = { 
   kind: 'resize-start'; 
   dayUtc0: number; 
@@ -138,31 +136,15 @@ export function WeekGrid({
   const [isMobile, setIsMobile] = useState(false);
   const [visibleDays, setVisibleDays] = useState(7);
   const [touchStart, setTouchStart] = useState<{x: number, y: number, time: number} | null>(null);
-  const [tasksLoading, setTasksLoading] = useState(false);
   
-  useEffect(() => {
-    if (!showDeadlineTasks) return;
-    
-    const loadTasks = async () => {
-      try {
-        setTasksLoading(true);
-        const allTasks = await getTasks();
-        // Filter to only tasks with deadlines
-        const tasksWithDeadlines = allTasks.filter(task => 
-          task.dueDate && 
-          task.status !== 'DONE' && 
-          task.status !== 'CANCELLED'
-        );
-        setTasks(tasksWithDeadlines);
-      } catch (error) {
-        console.error('Failed to load tasks for deadline display:', error);
-      } finally {
-        setTasksLoading(false);
-      }
-    };
-    
-    loadTasks();
-  }, [showDeadlineTasks, currentWeekOffset]); 
+  // Filter tasks to only show ones with deadlines
+  const deadlineTasks = useMemo(() => {
+    return tasks.filter(task => 
+      task.dueDate && 
+      task.status !== 'DONE' && 
+      task.status !== 'CANCELLED'
+    );
+  }, [tasks]);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -1030,10 +1012,10 @@ export function WeekGrid({
           })}
         </div>
       </div>
-      {/* Add Deadline Tasks section */}
-      {showDeadlineTasks && tasks.length > 0 && (
+      {/* Add Deadline Tasks section - Only show if we have tasks and onTaskDrop is defined */}
+      {showDeadlineTasks && deadlineTasks.length > 0 && onTaskDrop && (
         <DeadlineTasks
-          tasks={tasks}  // Use the tasks prop directly
+          tasks={deadlineTasks}
           mondayUtc0={mondayUtc0}
           days={days}
           onTaskClick={(task) => {
