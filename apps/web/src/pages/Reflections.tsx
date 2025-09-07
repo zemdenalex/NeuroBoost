@@ -158,7 +158,7 @@ export function Reflections() {
                       </span>
                     </div>
                     <div className="text-xs text-zinc-500 mt-1">
-                      {new Date(event.startsAt).toLocaleString('en-US', {
+                      {new Date(event.startUtc).toLocaleString('en-US', {
                         weekday: 'short',
                         month: 'short',
                         day: 'numeric',

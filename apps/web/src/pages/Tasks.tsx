@@ -1,7 +1,7 @@
 // apps/web/src/pages/Tasks.tsx
 
 import { useState, useEffect } from 'react';
-import { getTasks, createTask, updateTask, deleteTask } from '../api';
+import { getTasks, createTask, updateTask, deleteTask, API_BASE } from '../api';
 import { TASK_PRIORITIES, getPriorityInfo } from '../types';
 import type { Task } from '../types';
 
