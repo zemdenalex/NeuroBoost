@@ -22,7 +22,7 @@ export function NavigationMenu({ isOpen, onClose }: { isOpen: boolean; onClose: 
         
         <nav className="space-y-1">
           {pages.map(page => (
-            
+            <a
               key={page.path}
               href={page.path}
               className="flex items-center gap-3 px-3 py-2 rounded hover:bg-zinc-800 transition-colors"

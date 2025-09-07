@@ -1,14 +1,14 @@
-// apps/web/src/router.tsx - Update existing file
+// apps/web/src/router.tsx
 
-import React, { useEffect, useSyncExternalStore, Suspense } from 'react';
+import React, { Suspense } from 'react';
 import App from './App';
 
 // Lazy load all pages
 const ExportPanel = React.lazy(() => import('./pages/Export'));
-const GoalsAndDreams = React.lazy(() => import('./pages/GoalsAndDreams'));
-const Reflections = React.lazy(() => import('./pages/Reflections'));
-const Tasks = React.lazy(() => import('./pages/Tasks'));
-const TimePlanning = React.lazy(() => import('./pages/TimePlanning'));
+const GoalsAndDreams = React.lazy(() => import('./pages/GoalsAndDreams').then(m => ({ default: m.GoalsAndDreams })));
+const Reflections = React.lazy(() => import('./pages/Reflections').then(m => ({ default: m.Reflections })));
+const Tasks = React.lazy(() => import('./pages/Tasks').then(m => ({ default: m.Tasks })));
+const TimePlanning = React.lazy(() => import('./pages/TimePlanning').then(m => ({ default: m.TimePlanning })));
 
 function subscribe(cb: () => void) {
   window.addEventListener('hashchange', cb);
@@ -17,7 +17,13 @@ function subscribe(cb: () => void) {
 function getSnapshot() { return window.location.hash || '#/'; }
 
 export default function RootRouter() {
-  const hash = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const [hash, setHash] = React.useState(getSnapshot());
+  
+  React.useEffect(() => {
+    const handleHashChange = () => setHash(getSnapshot());
+    return subscribe(handleHashChange);
+  }, []);
+  
   const route = hash.replace(/^#/, '');
 
   return (

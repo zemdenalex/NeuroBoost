@@ -9,6 +9,7 @@ import DbBadge from './components/DbBadge';
 import StatsBadge from './components/StatsBadge';
 import type { NbEvent, Task, CreateEventBody } from './types';
 import { getEvents, patchEventUTC, deleteEvent, createEventUTC, API_BASE, updateTask, UpdateTaskBody } from './api';
+import { getTasks } from './api';
 
 type Range = { start: Date; end: Date } | null;
 type ViewMode = 'week' | 'month';
@@ -22,6 +23,22 @@ export default function App() {
   const [draft, setDraft] = useState<NbEvent | null>(null);
   const [taskSidebarOpen, setTaskSidebarOpen] = useState(true); // Default open
   const [showExportPanel, setShowExportPanel] = useState(false);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [showDeadlineTasks, setShowDeadlineTasks] = useState(true);
+
+  async function loadTasks() {
+    try {
+      const allTasks = await getTasks();
+      setTasks(allTasks);
+    } catch (error) {
+      console.error('Failed to load tasks:', error);
+    }
+  }
+
+  // Add useEffect to load tasks on mount and when events change
+  useEffect(() => {
+    loadTasks();
+  }, []);
 
   function weekRangeUtc(weekOffset: number = 0): { start: string; end: string } {
     const nowUtcMs = Date.now();
@@ -64,6 +81,8 @@ export default function App() {
       }
       const data = await getEvents(start, end);
       setEvents(data);
+      
+      await loadTasks();
     } catch (error) {
       console.error('Failed to load events:', error);
     }
@@ -235,6 +254,19 @@ export default function App() {
             <div className="font-semibold">NeuroBoost</div>
             <div className="text-xs text-zinc-500">v0.3.0</div>
           </div>
+
+          {/* Add this toggle button */}
+          <button
+            onClick={() => setShowDeadlineTasks(!showDeadlineTasks)}
+            className={`text-xs px-2 py-1 rounded ${
+              showDeadlineTasks 
+                ? 'bg-zinc-600 text-white' 
+                : 'bg-zinc-800 text-zinc-400 hover:text-white'
+            }`}
+            title="Toggle deadline tasks"
+          >
+            📍 Deadlines
+          </button>
           
           <div className="flex items-center gap-2">
             {/* View Mode Toggle */}
@@ -327,6 +359,7 @@ export default function App() {
               onDelete={onDelete}
               onWeekChange={onWeekChange}
               onTaskDrop={onDragTaskToSchedule}
+              showDeadlineTasks={showDeadlineTasks} 
             />
           ) : (
             <MonthlyView

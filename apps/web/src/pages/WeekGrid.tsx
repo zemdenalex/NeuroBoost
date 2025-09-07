@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import type { NbEvent, Task } from '../types';
 import { DeadlineTasks } from '../components/DeadlineTasks';
+import { getTasks } from '../api';
 
 const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -67,6 +68,7 @@ const mskDayLabel = (d: Date, short: boolean = false) => {
 
 export type WeekGridProps = {
   events: NbEvent[];
+  tasks?: Task[];  
   currentWeekOffset?: number;
   onCreate: (slot: { startUtc: string; endUtc: string; allDay?: boolean; daySpan?: number }) => void;
   onMoveOrResize: (patch: { id: string; startUtc?: string; endUtc?: string }) => void;
@@ -74,6 +76,7 @@ export type WeekGridProps = {
   onDelete: (id: string) => Promise<void>;
   onWeekChange?: (offset: number) => void;
   onTaskDrop?: (task: Task, startTime: Date) => void;
+  showDeadlineTasks?: boolean;
 };
 
 type DragCreate = { 
@@ -121,18 +124,45 @@ type DragState = null | DragCreate | DragMove | DragResizeStart | DragResizeEnd;
 
 export function WeekGrid({ 
   events, 
+  tasks = [], 
   currentWeekOffset = 0, 
   onCreate, 
   onMoveOrResize, 
   onSelect, 
   onDelete,
   onWeekChange,
-  onTaskDrop
+  onTaskDrop,
+  showDeadlineTasks = true
 }: WeekGridProps) {
   
   const [isMobile, setIsMobile] = useState(false);
   const [visibleDays, setVisibleDays] = useState(7);
   const [touchStart, setTouchStart] = useState<{x: number, y: number, time: number} | null>(null);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  
+  useEffect(() => {
+    if (!showDeadlineTasks) return;
+    
+    const loadTasks = async () => {
+      try {
+        setTasksLoading(true);
+        const allTasks = await getTasks();
+        // Filter to only tasks with deadlines
+        const tasksWithDeadlines = allTasks.filter(task => 
+          task.dueDate && 
+          task.status !== 'DONE' && 
+          task.status !== 'CANCELLED'
+        );
+        setTasks(tasksWithDeadlines);
+      } catch (error) {
+        console.error('Failed to load tasks for deadline display:', error);
+      } finally {
+        setTasksLoading(false);
+      }
+    };
+    
+    loadTasks();
+  }, [showDeadlineTasks, currentWeekOffset]); 
 
   useEffect(() => {
     const checkMobile = () => {
@@ -1001,16 +1031,18 @@ export function WeekGrid({
         </div>
       </div>
       {/* Add Deadline Tasks section */}
-      <DeadlineTasks
-        tasks={tasks} // You'll need to fetch tasks in the parent component
-        mondayUtc0={mondayUtc0}
-        days={days}
-        onTaskClick={(task) => {
-          // Open task editor or convert to event
-          console.log('Task clicked:', task);
-        }}
-        onTaskDragToSchedule={onTaskDrop}
-      />
+      {showDeadlineTasks && tasks.length > 0 && (
+        <DeadlineTasks
+          tasks={tasks}  // Use the tasks prop directly
+          mondayUtc0={mondayUtc0}
+          days={days}
+          onTaskClick={(task) => {
+            // Open task in sidebar or convert to event
+            console.log('Task clicked:', task);
+          }}
+          onTaskDragToSchedule={onTaskDrop}
+        />
+      )}
     </div>
   );
 }
