@@ -128,6 +128,28 @@ export type WeekStats = {
   reflectionCount: number;
 };
 
+// apps/web/src/types.ts - Add to existing file
+
+export type DeadlineTask = Task & {
+  deadline: string; // ISO date string
+  warningMinutesBefore?: number; // When to show warning
+  criticalMinutesBefore?: number; // When it becomes critical
+};
+
+// Add helper to determine task urgency
+export function getTaskUrgency(task: DeadlineTask): 'overdue' | 'critical' | 'warning' | 'normal' {
+  if (!task.deadline) return 'normal';
+  
+  const now = new Date().getTime();
+  const deadline = new Date(task.deadline).getTime();
+  const diff = deadline - now;
+  
+  if (diff < 0) return 'overdue';
+  if (task.criticalMinutesBefore && diff < task.criticalMinutesBefore * 60000) return 'critical';
+  if (task.warningMinutesBefore && diff < task.warningMinutesBefore * 60000) return 'warning';
+  return 'normal';
+}
+
 // Priority system reference
 export const TASK_PRIORITIES = {
   0: { name: 'Buffer', description: 'Low-priority fill tasks' },

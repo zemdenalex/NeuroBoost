@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import type { NbEvent, Task } from '../types';
+import { DeadlineTasks } from '../components/DeadlineTasks';
 
 const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -999,6 +1000,17 @@ export function WeekGrid({
           })}
         </div>
       </div>
+      {/* Add Deadline Tasks section */}
+      <DeadlineTasks
+        tasks={tasks} // You'll need to fetch tasks in the parent component
+        mondayUtc0={mondayUtc0}
+        days={days}
+        onTaskClick={(task) => {
+          // Open task editor or convert to event
+          console.log('Task clicked:', task);
+        }}
+        onTaskDragToSchedule={onTaskDrop}
+      />
     </div>
   );
 }
