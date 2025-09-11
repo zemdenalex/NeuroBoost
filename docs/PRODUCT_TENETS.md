@@ -24,3 +24,5 @@
 11. **Anxiety‑safe routines.** Routines render as sequential checklists by default rather than long blocking slabs, reducing overwhelm.  Users can activate routines manually or automatically and pause them at any time.
 
 12. **Transparent scoring & filters.** The suggestion algorithm is simple and explainable, based on deadline proximity, estimated duration, priority, context and energy.  Users can filter and hide tasks (e.g., show only top‑priority, hide repeats) and remain fully in control of what appears on the planner or in the bot.
+
+13. **Feedback built in.** Quick bug reporting and feature suggestion forms are available throughout the app.  Reports automatically include anonymized diagnostics; suggestions focus on user goals rather than technical specifications.  A structured backlog ensures issues are tracked, prioritized and resolved transparently.

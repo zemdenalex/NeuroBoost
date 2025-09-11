@@ -15,6 +15,13 @@
 - No third‑party telemetry or tracking. Minimal server logs with rotation.
 - Principle of least privilege for API tokens and bot keys.
 
+## Feedback & Bug Reporting
+
+- All bug report submissions must strip personally identifying information (e.g. event titles, notes, contacts).  Only environment data (browser, OS, timestamp, anonymized IDs) and sanitized logs are attached.
+- Maximum log payload per submission: **50 KB**; larger logs are truncated and available only on the server.
+- Feedback storage must follow the same encryption and access controls as user data.
+- Users should be informed that their input will be used solely for improving the product and will not be shared externally.
+
 ## Accessibility
 - Full keyboard navigation and focus outlines. Minimum contrast 4.5:1.
 - Prefer semantic HTML + ARIA only where needed.

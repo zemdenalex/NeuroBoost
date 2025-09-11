@@ -26,3 +26,11 @@
 - Define **anxiety‑safe routines**: routines render as sequential checklists by default rather than long blocking blocks; users can pause or modify them without penalty.
 - Expand the product tenets with new points on the notify bot, anxiety‑safe routines, and transparent scoring & filters (Tenets 10–12).
 - Split the v0.4.x roadmap into sub‑versions (0.4.1–0.4.6) covering contexts/energy, routines/dependencies, smart slotting/aging, notifications, reflections, and export/sharing.  Outline later versions (v0.5.x–v1.0.x) for authentication, gamification, optimization, ML, beta and GA.
+
+## 2025-09-11 — Feedback & Backlog
+
+- Introduce a **built‑in bug report and feature suggestion system** accessible from every page and via the bot.  Reports collect environment info and anonymized logs; suggestions ask user‑centric questions rather than technical details.
+- Define a new `Feedback` table `{id, userId, type, description, details, logsJson, priority, status, createdAt, resolvedAt}` with an internal API for maintainers to triage and resolve submissions.
+- Include a new **Feedback built in** tenet (Product Tenet #13) to emphasize that user feedback loops are essential to product quality.
+- Update NFRs to ensure bug logs anonymize PII and limit log size.
+- Add a backlog feature to the roadmap (see v0.4.7).

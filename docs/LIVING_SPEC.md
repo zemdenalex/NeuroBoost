@@ -81,6 +81,18 @@ Return the top‑N tasks along with a short rationale.  **Never auto‑schedule*
 - Export remains a **dry‑run** by default. Users can export to a zip archive of Markdown files located in `NeuroBoost/`. Export never overwrites or deletes content outside the scoped folder.
 - Obsidian integration is optional and minimal. The system does not depend on Obsidian; it simply produces compatible `.md` files for those who use it.
 
+## Feedback & Backlog
+
+Users should never have to hunt through chats or external notes to report issues or suggest improvements.  NeuroBoost therefore includes a **built‑in feedback loop** that funnels all reports into a single backlog:
+
+- **Report bug** buttons in the Planner, Tasks, Reflections and Goals pages open a short form asking “What went wrong?” and optional steps to reproduce.  The UI automatically attaches relevant environment and diagnostic information (client/browser, version, timestamp and anonymized logs) so you don’t have to paste console errors.  For privacy, any personally identifying data (event titles, notes) is stripped before submission.
+- **Suggest feature** links prompt you to describe the problem you’d like solved and any ideas you have.  Instead of forcing technical details, the form asks simple questions: “What are you trying to achieve?”, “What’s blocking you?”, and “How would success feel?”.  Users can also mark the priority (Nice to Have, Important, Critical) to help triage.
+- **Backend and database.**  A new `Feedback` table stores each submission with fields `{id, userId, type (bug|feature), description, details, logsJson, priority, status ('open'|'triaged'|'in_progress'|'done'), createdAt, resolvedAt}`.  Only authorized developers see the backlog; it never appears in the user‑facing task list.
+- **Retrieval and processing.**  An internal `/feedback` API lets maintainers list, filter and update feedback items.  For bug reports, server‑side error logs are attached automatically to speed debugging.  For feature ideas, suggested tags (e.g. planner, tasks, notifications) are added using simple NLP.
+- **Integration with development workflow.**  Submissions convert into GitHub issues (or an internal ticket system) via a cron job or manual action.  The backlog helps prioritize the roadmap and feeds into our ADR/decisions log.
+
+The goal of the feedback system is to reduce friction: users click a button, describe what they need in plain language, and the system does the rest.  This also ensures the team has structured, searchable records of all bugs and ideas rather than scattered screenshots and chats.
+
 ## Current Focus
 
 - **v0.3.2 Stabilization:** Address remaining inconveniences (notifications reliability, bot flows, week view polish), but defer the monthly view. 

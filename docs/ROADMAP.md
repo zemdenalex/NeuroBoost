@@ -20,6 +20,8 @@ The **v0.4.x series** is split into focused sub‑versions to iteratively build 
 
 - **v0.4.6 – Export & Sharing.** Finish the export pipeline (zip of Markdown files) and allow simple sharing of routines or task templates.  Keep export idempotent and dry‑run by default.
 
+ - **v0.4.7 – Feedback & Backlog.**  Implement user‑facing bug report and feature suggestion forms on all pages and the bot, backed by a `Feedback` table and internal API.  Automate issue creation from the backlog and triage processes.  Ensure logs are anonymized and stored securely.  This lays the foundation for continuous improvement as more users come onboard.
+
 ## v0.5.x – Authentication & Multi‑User
 Add Telegram‑based authentication and basic user isolation.  Deploy early Windows/Android shells and finalize server and TLS configuration.
 
