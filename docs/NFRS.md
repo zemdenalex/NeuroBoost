@@ -20,4 +20,12 @@
 - Prefer semantic HTML + ARIA only where needed.
 
 ## Observability
-- Local, privacy‑preserving metrics: error count, render times, suggestion timings. No PII.
+ - Local, privacy‑preserving metrics: error count, render times, suggestion timings. No PII.
+
+## Notifications & Nudges
+
+- **Quiet hours default**: 22:00–08:00 local time; users can override this per profile.
+- **Planning nudges**: daily planning prompt at 21:00 local time and weekly planning prompt on Sunday at 18:00 local time; these times are configurable.
+- **Rate limit**: cap notifications at roughly one Telegram message per minute per user; tasks sharing the same timestamp are grouped into a single notification.
+- **Reminder schedule**: by default event reminders are sent at 30, 10 and 5 minutes before a scheduled event.  For tasks with time windows, the system sends a reminder at the window start, an optimal intermediate point, and ten minutes before the window closes.
+- **Bot separation**: reminders are delivered through a dedicated notify bot to keep interactive commands and one‑way notifications separate.

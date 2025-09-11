@@ -10,8 +10,15 @@
 
 ### Tasks
 - Dedicated page for creating, editing and prioritizing tasks. 
-- Each task has: `title`, `type` (`timed` | `deadline` | `all_day`), `estimateMin`, `category` (`emergency` | `asap` | `must_today` | `deadline_soon` | `if_possible` | null), `earliestStartAt?`, `deadlineAt?`, `priority` (1‑5), `energy` (`low` | `med` | `high`), `contexts[]`, `tags[]`, `deps[]`, `repeatPattern?` (`daily`, `weekly`, `monthly`, or a Cron‑like rule), `subtasks[]`, and `status` (`todo` | `doing` | `done`).  Categories loosely correspond to the “Emergency/ASAP/Must Today/Deadline Soon/If Possible” buckets from the raw task lists shared by Denis.
+- Each task has: `title`, `type` (`timed` | `deadline` | `all_day`), `estimateMin`, `category` (`emergency` | `asap` | `must_today` | `deadline_soon` | `if_possible` | null), `earliestStartAt?`, `deadlineAt?`, `priority` (1‑5), `energy` (1‑5), `contexts[]`, `tags[]`, `deps[]`, `repeatPattern?` (`daily`, `weekly`, `monthly`, or a Cron‑like rule), `subtasks[]`, and `status` (`todo` | `doing` | `done`).  Categories loosely correspond to the “Emergency/ASAP/Must Today/Deadline Soon/If Possible” buckets from the raw task lists shared by Denis.
+
+  Additional per‑task properties:
+  - `emotionalDifficulty` (1–5): how emotionally challenging the task feels.  High values may trigger prompts to break tasks into smaller parts or schedule them during high‑energy periods.
+  - `aging`: `{ createdAt, bumps }` where `bumps` counts manual deferrals.  Each deferral slightly increases the task’s suggestion score, surfacing long‑avoided tasks.  The UI can highlight tasks that have aged beyond a configurable threshold.
+  - `color`: optional custom color.  If absent, tasks inherit the default color of their category.  Default category colors: Work=blue, Education=purple, Health/Routine=green, Personal=orange, Errands=gray.  This helps visually distinguish types of work.
+  - `parent` and `children[]`: pointers for hierarchical task trees.  Top‑level tasks capture broad goals (life goals), mid‑level tasks capture projects or long goals, and leaves are actionable tasks (small goals).  Splitting tasks into subtasks is manual in v0.4.x and will be guided by suggestions in later versions.
 - Users can sort tasks by **urgency**, **created**, **deadline**, **category**, or **priority**.  Long lists should be paginated or truncated with “show more” controls.
+- Users can toggle task visibility — for example, show only top‑priority tasks, hide repeating or home‑care routines, or filter by context.
 - Provide bulk actions (e.g., assign category) and quick filters (e.g., show only ASAP tasks). 
 - Visualizations: small charts/heatmaps summarizing tasks by category, completion status, and **repeat frequency**.  For example, a “Home Alone” routine might contain 17 daily caretaking tasks that together consume ~120 minutes; the heatmap should make such clusters obvious.
 
@@ -43,28 +50,30 @@ The task model therefore includes a `repeatPattern` and a `deps[]` list to speci
 
 ## Suggestions (scoring sketch)
 
-The suggestion engine computes a score:
+Tasks are ranked using a simple scoring formula:
 
-`score = U + P + Ctx + Eng + Cat − R`
+`S_simple = ((D / max(estimateMin, 5)) * priority) + C + E − R`
 
-- **U (Urgency)**: inverse of time to deadline; 0 for non‑deadline tasks. 
-- **P (Priority)**: linear weight from user priority (1..5). 
-- **Ctx (Context fit)**: +1 if current context matches; +0.5 if partially matches. 
-- **Eng (Energy match)**: +1 if energy level matches current user state; else 0. 
-- **Cat (Category)**: weight based on category:
-  - emergency: +4  
-  - asap: +3  
-  - must_today: +2  
-  - deadline_soon: +1  
-  - if_possible or null: +0
-- **R (Risk of failure)**: penalty if dependencies are unresolved, estimate exceeds available free window, or the task recently failed.
+Where:
 
-Return top‑N suggestions with a brief human‑readable rationale. **Never auto‑schedule**; always ask for consent.
+- **D (Deadline/window proximity)**: a piecewise score based on how close the task’s `deadlineAt` or end of its `window` is to now.  Tasks with no deadline or window contribute 0.
+- **priority**: the user‑assigned priority (1–5).
+- **C (Context fit)**: +1 if your current context exactly matches one of `task.contexts`, +0.5 if partially matches, else 0.
+- **E (Energy fit)**: +1 if your current energy (1–5) is within ±1 of `task.energy`, else 0.
+- **R (Risk/penalties)**: penalty applied if dependencies are unresolved, the estimated duration exceeds the available free window, or the task recently failed.  Each manual bump recorded in `aging.bumps` slightly increases the score, surfacing long‑avoided tasks.
+
+Future releases will extend this formula with additional terms (aging boost, past adherence, routine weighting, emotional difficulty) as data accumulates.
+
+Return the top‑N tasks along with a short rationale.  **Never auto‑schedule**; always ask for consent.
 
 ## Notifications & Bot
 
-- **Customizable nudge policies.** Users can configure when and how often they are reminded (e.g., 30 minutes before a free slot, hourly, daily). Quiet hours and snooze options are supported. Dedupe is soft and configurable, not hard‑coded.
-- **Telegram UI.** Main menus appear below the input field; long lists (e.g., task lists, monthly views) appear below the message. Slash commands are optional shortcuts. Users can configure how many tasks to display at once and choose sort order.
+- **Customizable nudge policies.** Users can configure when and how often they are reminded.  By default the system sends:
+    - **Event reminders** at 30, 10 and 5 minutes before a scheduled event.
+    - **Daily planning nudges** at 21:00 local time to plan the next day.
+    - **Weekly planning nudges** on Sunday at 18:00 local time to plan the week and reflect on the past week.
+    Quiet hours (by default 22:00–08:00) prevent notifications during sleep and are fully configurable.  Snooze options allow postponing reminders.  The message rate is capped at about one Telegram message per minute per user; tasks sharing the same timestamp (for example, multiple deadlines at 15:00) are grouped into a single notification.
+- **Telegram UI.** Main menus appear below the input field; long lists (e.g., task lists, monthly views) appear below the message.  Slash commands are optional shortcuts.  Users can configure how many tasks to display at once and choose sort order.  A second, dedicated **notify bot** is used exclusively for one‑way reminders to avoid keyboard collisions; the primary bot handles interactive commands and data entry.
 - **Routines.** Routines group tasks and can be activated with one tap (e.g., “Home Alone” routine triggers 17 care tasks). Routines are slotted intelligently into free windows while respecting context and current schedule.
 
 ## Export
