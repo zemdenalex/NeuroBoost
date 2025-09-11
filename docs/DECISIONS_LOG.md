@@ -13,3 +13,16 @@
 - Task model updated: `repeatPattern` may be daily, weekly, monthly, or Cron‑like; categories map to raw buckets (Emergency/ASAP/Must Today/Deadline Soon/If Possible).  Sort order can be paginated.
 - Visualization updated: heatmaps should surface clusters of repeating tasks and their time cost.
 - LLM sessions should use new scripts (`gen-delta.ps1`, `gen-delta.js`) and top‑of‑file notes for large files.
+
+## 2025-09-11 — Contexts, Energy and Scoring
+
+- Adopt a **default set of contexts** (`@home`, `@computer`, `@university`, `@work`, `@errands`, `@personal`, `@routine`) with the ability for users to create custom contexts.  Contexts drive suggestions and filtering.
+- Switch the **energy** field to a numeric 1–5 scale with semantic descriptions (1 = very low energy, 5 = full focus).  The suggestion engine now matches tasks to the user’s energy within ±1.
+- Replace the old linear scoring formula with **S_simple = ((D / max(estimateMin, 5)) * priority) + C + E – R**, where D is deadline/window proximity, C is context fit, E is energy fit and R is risk/penalties.  Age bumps slightly increase the score.
+- Add **task visibility toggles**, allowing users to hide or show certain categories (e.g., repeats/home‑care) or focus on top‑priority items.
+- Default nudge windows defined: event reminders at **30**, **10** and **5** minutes before start; **daily planning** prompts at **21:00** local time; **weekly planning** prompts on **Sunday at 18:00** local time.  Users can override these times.
+- Introduce a **rate limit** of roughly **one Telegram message per minute per user**.  Tasks sharing an identical timestamp are grouped into a single message.
+- Create a **dedicated notify bot** for one‑way reminders, separate from the interactive bot.  Notifications respect quiet hours (default 22:00–08:00) and snooze settings.
+- Define **anxiety‑safe routines**: routines render as sequential checklists by default rather than long blocking blocks; users can pause or modify them without penalty.
+- Expand the product tenets with new points on the notify bot, anxiety‑safe routines, and transparent scoring & filters (Tenets 10–12).
+- Split the v0.4.x roadmap into sub‑versions (0.4.1–0.4.6) covering contexts/energy, routines/dependencies, smart slotting/aging, notifications, reflections, and export/sharing.  Outline later versions (v0.5.x–v1.0.x) for authentication, gamification, optimization, ML, beta and GA.
