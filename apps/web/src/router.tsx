@@ -1,9 +1,6 @@
-// apps/web/src/router.tsx
-
 import React, { Suspense } from 'react';
 import App from './App';
 
-// Lazy load all pages
 const ExportPanel = React.lazy(() => import('./pages/Export'));
 const GoalsAndDreams = React.lazy(() => import('./pages/GoalsAndDreams').then(m => ({ default: m.GoalsAndDreams })));
 const Reflections = React.lazy(() => import('./pages/Reflections').then(m => ({ default: m.Reflections })));
