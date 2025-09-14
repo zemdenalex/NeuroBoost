@@ -19,6 +19,7 @@ github*
 
 #Private info
 private/
+log/
 
 # Environment files (keep templates)
 .env
