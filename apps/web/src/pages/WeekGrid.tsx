@@ -53,6 +53,13 @@ const minsToTop = (m: number) => (m / 60) * HOUR_PX;
 const topToMins = (y: number) => (y / HOUR_PX) * 60;
 const clampMins = (m: number) => Math.max(0, Math.min(1439, m));
 
+// Helper function to format minutes since midnight as HH:MM
+const formatMinutesToTime = (minutes: number): string => {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+};
+
 const mskDayLabel = (d: Date, short: boolean = false) => {
   if (short) {
     return d.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric' });
@@ -229,9 +236,52 @@ export function WeekGrid({
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   
+  // Auto-scroll state and refs
+  const autoScrollRef = useRef<number | null>(null);
+  const [autoScrolling, setAutoScrolling] = useState(false);
+  
   useEffect(() => { containerRef.current?.focus(); }, []);
 
+  // Auto-scroll functions
+  const startAutoScroll = (direction: 'up' | 'down') => {
+    if (autoScrollRef.current || !scrollContainerRef.current) return;
+    
+    const scroll = () => {
+      if (!scrollContainerRef.current) return;
+      
+      const delta = direction === 'up' ? -4 : 4; // 240px/s at 60fps = 4px per frame
+      const currentScroll = scrollContainerRef.current.scrollTop;
+      const maxScroll = scrollContainerRef.current.scrollHeight - scrollContainerRef.current.clientHeight;
+      
+      if ((direction === 'up' && currentScroll > 0) || (direction === 'down' && currentScroll < maxScroll)) {
+        scrollContainerRef.current.scrollTop += delta;
+        autoScrollRef.current = requestAnimationFrame(scroll);
+      } else {
+        stopAutoScroll();
+      }
+    };
+    
+    autoScrollRef.current = requestAnimationFrame(scroll);
+    setAutoScrolling(true);
+  };
+
+  const stopAutoScroll = () => {
+    if (autoScrollRef.current) {
+      cancelAnimationFrame(autoScrollRef.current);
+      autoScrollRef.current = null;
+      setAutoScrolling(false);
+    }
+  };
+
   function handleKeyDown(ev: React.KeyboardEvent<HTMLDivElement>) {
+    // Handle escape key to cancel drag
+    if (ev.key === 'Escape' && drag) {
+      ev.preventDefault();
+      setDrag(null);
+      stopAutoScroll();
+      return;
+    }
+
     if (!selectedId) return;
     const evt = events.find(x => x.id === selectedId);
     if (!evt) return;
@@ -274,7 +324,23 @@ export function WeekGrid({
       if (!drag || !scrollContainerRef.current || !dragMetaRef.current) return;
       
       const { colTop, scrollStart, allDayTop } = dragMetaRef.current;
-      const scrollTop = scrollContainerRef.current.scrollTop;
+      const scrollContainer = scrollContainerRef.current;
+      const scrollTop = scrollContainer.scrollTop;
+      const scrollRect = scrollContainer.getBoundingClientRect();
+      
+      // Auto-scroll detection - check if mouse is within 24px of top/bottom edges
+      const EDGE_THRESHOLD = 24;
+      const mouseYRelativeToContainer = ev.clientY - scrollRect.top;
+      
+      if (mouseYRelativeToContainer < EDGE_THRESHOLD && scrollTop > 0) {
+        startAutoScroll('up');
+      } else if (mouseYRelativeToContainer > scrollRect.height - EDGE_THRESHOLD && 
+                 scrollTop < scrollContainer.scrollHeight - scrollContainer.clientHeight) {
+        startAutoScroll('down');
+      } else {
+        stopAutoScroll();
+      }
+      
       const isInAllDay = allDayTop !== undefined && ev.clientY >= allDayTop && ev.clientY <= allDayTop + ALL_DAY_HEIGHT;
       
       const yLocal = isInAllDay ? 0 : 
@@ -284,7 +350,7 @@ export function WeekGrid({
       ev.preventDefault();
       document.getSelection()?.removeAllRanges();
 
-      const gridRect = scrollContainerRef.current.getBoundingClientRect();
+      const gridRect = scrollContainer.getBoundingClientRect();
       const dayWidth = gridRect.width / visibleDays;
       const dayIndex = Math.floor((ev.clientX - gridRect.left) / dayWidth);
       const targetDayUtc0 = days[Math.max(0, Math.min(days.length - 1, dayIndex))]?.dayUtc0;
@@ -321,6 +387,8 @@ export function WeekGrid({
     }
 
     function onUp() {
+      stopAutoScroll(); // Always stop auto-scroll on mouse up
+      
       if (!drag) return;
       
       switch (drag.kind) {
@@ -423,6 +491,7 @@ export function WeekGrid({
     return () => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      stopAutoScroll(); // Cleanup auto-scroll on unmount
     };
   }, [drag, onCreate, onMoveOrResize, days, visibleDays, events]);
 
@@ -515,9 +584,9 @@ export function WeekGrid({
         
         <div className="text-xs text-zinc-400">
           {isMobile ? (
-            "Tap: select • Long-press: create • Drag: move"
+            "Tap: select • Long-press: create • Drag: move • Esc: cancel"
           ) : (
-            "Drag: create • All-day: top section • Ctrl+Drag: move across days • Drag tasks from sidebar to schedule"
+            "Drag: create • All-day: top section • Ctrl+Drag: move across days • Drag tasks from sidebar to schedule • Esc: cancel"
           )}
         </div>
       </div>
@@ -652,7 +721,7 @@ export function WeekGrid({
               })}
             </div>
             
-            {/* Multi-day create ghost - with proper spacing and animation */}
+            {/* Multi-day create ghost in all-day section - with time labels */}
             {drag && drag.kind === 'create' && drag.allDay && drag.crossDay && (() => {
               const startDayIndex = Math.max(0, Math.min(visibleDays - 1, 
                 Math.floor((Math.min(drag.startDayUtc0, drag.endDayUtc0) - mondayUtc0) / DAY_MS)));
@@ -662,40 +731,55 @@ export function WeekGrid({
               const leftPercent = (startDayIndex / visibleDays) * 100;
               const widthPercent = ((endDayIndex - startDayIndex + 1) / visibleDays) * 100;
               
+              const startDate = new Date(Math.min(drag.startDayUtc0, drag.endDayUtc0) + MSK_OFFSET_MS);
+              const endDate = new Date(Math.max(drag.startDayUtc0, drag.endDayUtc0) + MSK_OFFSET_MS);
+              const label = `${startDate.toLocaleDateString('ru-RU', { month: 'short', day: 'numeric' })} — ${endDate.toLocaleDateString('ru-RU', { month: 'short', day: 'numeric' })}`;
+              
               return (
                 <div 
-                  className="absolute bg-emerald-400/40 border border-emerald-400/60 pointer-events-none transition-all duration-150"
+                  className="absolute bg-emerald-400/40 border border-emerald-400/60 pointer-events-none transition-all duration-150 flex items-center justify-center"
                   style={{
                     top: 25,
                     height: ALL_DAY_HEIGHT - 30,
                     left: `calc(${leftPercent}% + 4px)`,
                     width: `calc(${widthPercent}% - 8px)`,
                     borderRadius: '6px',
-                    zIndex: 40
+                    zIndex: 50
                   }}
-                />
+                >
+                  <span className="text-xs font-mono text-emerald-100 bg-emerald-800/90 px-2 py-1 rounded">
+                    {label}
+                  </span>
+                </div>
               );
             })()}
 
-            {/* Single-day all-day create ghost - with proper spacing */}
+            {/* Single-day all-day create ghost */}
             {drag && drag.kind === 'create' && drag.allDay && !drag.crossDay && (() => {
               const dayIndex = Math.max(0, Math.min(visibleDays - 1, 
                 Math.floor((drag.startDayUtc0 - mondayUtc0) / DAY_MS)));
               const leftPercent = (dayIndex / visibleDays) * 100;
               const widthPercent = (1 / visibleDays) * 100;
               
+              const dayDate = new Date(drag.startDayUtc0 + MSK_OFFSET_MS);
+              const label = dayDate.toLocaleDateString('ru-RU', { month: 'short', day: 'numeric' });
+              
               return (
                 <div 
-                  className="absolute bg-emerald-400/40 border border-emerald-400/60 pointer-events-none transition-all duration-150"
+                  className="absolute bg-emerald-400/40 border border-emerald-400/60 pointer-events-none transition-all duration-150 flex items-center justify-center"
                   style={{
                     top: 25,
                     height: ALL_DAY_HEIGHT - 30,
                     left: `calc(${leftPercent}% + 4px)`,
                     width: `calc(${widthPercent}% - 8px)`,
                     borderRadius: '6px',
-                    zIndex: 40
+                    zIndex: 50
                   }}
-                />
+                >
+                  <span className="text-xs font-mono text-emerald-100 bg-emerald-800/90 px-1 rounded">
+                    {label}
+                  </span>
+                </div>
               );
             })()}
           </div>
@@ -746,9 +830,31 @@ export function WeekGrid({
                     });
                   }}
                   onTouchMove={(e) => {
+                    if (!touchStart) return;
+                    
+                    // Auto-scroll detection for touch
+                    const touch = e.touches[0];
+                    const scrollContainer = scrollContainerRef.current;
+                    if (scrollContainer) {
+                      const scrollRect = scrollContainer.getBoundingClientRect();
+                      const touchYRelativeToContainer = touch.clientY - scrollRect.top;
+                      const EDGE_THRESHOLD = 24;
+                      
+                      if (touchYRelativeToContainer < EDGE_THRESHOLD && scrollContainer.scrollTop > 0) {
+                        startAutoScroll('up');
+                      } else if (touchYRelativeToContainer > scrollRect.height - EDGE_THRESHOLD && 
+                                 scrollContainer.scrollTop < scrollContainer.scrollHeight - scrollContainer.clientHeight) {
+                        startAutoScroll('down');
+                      } else {
+                        stopAutoScroll();
+                      }
+                    }
+                    
                     e.preventDefault(); // Prevent scrolling
                   }}
                   onTouchEnd={(e) => {
+                    stopAutoScroll(); // Stop auto-scroll on touch end
+                    
                     if (!touchStart) return;
                     
                     const touch = e.changedTouches[0];
@@ -898,22 +1004,33 @@ export function WeekGrid({
                     );
                   })}
 
-                  {/* Create ghost (timed) */}
+                  {/* Create ghost (timed) with time label */}
                   {drag && drag.kind === 'create' && !drag.allDay && 
                    drag.startDayUtc0 === dayUtc0 && drag.endDayUtc0 === dayUtc0 && (() => {
                     const a = Math.min(drag.startMin, drag.curMin);
                     const b = Math.max(drag.startMin, drag.curMin);
                     const top = minsToTop(a);
                     const height = Math.max(minsToTop(b - a), minsToTop(MIN_SLOT_MIN));
+                    
+                    const startTime = formatMinutesToTime(a);
+                    const endTime = formatMinutesToTime(b);
+                    const label = `${startTime} — ${endTime}`;
+                    
                     return (
                       <div 
-                        className="absolute bg-emerald-400/40 border border-emerald-400/60 rounded pointer-events-none z-30 animate-pulse"
-                        style={{ top, height, left: 2, right: 2, zIndex: 25 }} 
-                      />
+                        className="absolute bg-emerald-400/40 border border-emerald-400/60 rounded pointer-events-none transition-all duration-150 flex items-center justify-center"
+                        style={{ top, height, left: 2, right: 2, zIndex: 45 }} 
+                      >
+                        {height > 20 && (
+                          <span className="text-xs font-mono text-emerald-100 bg-emerald-800/90 px-1 rounded">
+                            {label}
+                          </span>
+                        )}
+                      </div>
                     );
                   })()}
 
-                  {/* Multi-day timed create ghost */}
+                  {/* Multi-day timed create ghost with time labels */}
                   {drag && drag.kind === 'create' && drag.isMultiDayTimed && (
                     drag.startDayUtc0 === dayUtc0 || drag.endDayUtc0 === dayUtc0 || 
                     (dayUtc0 > Math.min(drag.startDayUtc0, drag.endDayUtc0) && 
@@ -945,7 +1062,7 @@ export function WeekGrid({
                     
                     return (
                       <div 
-                        className="absolute bg-purple-400/40 border border-purple-400/60 pointer-events-none z-30"
+                        className="absolute bg-purple-400/40 border border-purple-400/60 pointer-events-none transition-all duration-150 flex flex-col items-center justify-center"
                         style={{ 
                           top, 
                           height, 
@@ -954,22 +1071,22 @@ export function WeekGrid({
                           borderRadius: isStartDay && isEndDay ? '4px' :
                                         isStartDay ? '4px 4px 0 0' :
                                         isEndDay ? '0 0 4px 4px' : '0',
-                          zIndex: 25
+                          zIndex: 45
                         }} 
                       >
                         {/* Add time labels for clarity */}
-                        {isStartDay && (
-                          <div className="absolute top-1 left-1 text-[10px] text-purple-100 bg-purple-800/80 px-1 rounded">
-                            {Math.floor(drag.startMin / 60).toString().padStart(2, '0')}:{(drag.startMin % 60).toString().padStart(2, '0')}
+                        {isStartDay && height > 30 && (
+                          <div className="text-[10px] text-purple-100 bg-purple-800/80 px-1 rounded mb-1">
+                            {formatMinutesToTime(drag.startMin)}
                           </div>
                         )}
-                        {isEndDay && (
-                          <div className="absolute bottom-1 right-1 text-[10px] text-purple-100 bg-purple-800/80 px-1 rounded">
-                            {Math.floor(drag.curMin / 60).toString().padStart(2, '0')}:{(drag.curMin % 60).toString().padStart(2, '0')}
+                        {isEndDay && height > 30 && (
+                          <div className="text-[10px] text-purple-100 bg-purple-800/80 px-1 rounded mt-1">
+                            {formatMinutesToTime(drag.curMin)}
                           </div>
                         )}
-                        {isMiddleDay && (
-                          <div className="absolute inset-x-2 top-2 text-[10px] text-purple-100 bg-purple-800/80 px-1 rounded text-center">
+                        {isMiddleDay && height > 30 && (
+                          <div className="text-[10px] text-purple-100 bg-purple-800/80 px-1 rounded">
                             continues...
                           </div>
                         )}
@@ -977,33 +1094,61 @@ export function WeekGrid({
                     );
                   })()}
 
-                  {/* Move ghost */}
+                  {/* Move ghost with time label */}
                   {drag && drag.kind === 'move' && !drag.allDay && 
-                   (drag.targetDayUtc0 === dayUtc0 || (!drag.targetDayUtc0 && drag.dayUtc0 === dayUtc0)) && (
-                    <div 
-                      className="absolute bg-blue-400/40 border border-blue-400/60 rounded pointer-events-none z-30"
-                      style={{ 
-                        top: minsToTop(clampMins(snapMin(drag.offsetMin))), 
-                        height: minsToTop(drag.durMin), 
-                        left: 2, 
-                        right: 2,
-                        zIndex: 25
-                      }} 
-                    />
-                  )}
+                   (drag.targetDayUtc0 === dayUtc0 || (!drag.targetDayUtc0 && drag.dayUtc0 === dayUtc0)) && (() => {
+                    const offsetMin = clampMins(snapMin(drag.offsetMin));
+                    const endMin = offsetMin + drag.durMin;
+                    const top = minsToTop(offsetMin);
+                    const height = minsToTop(drag.durMin);
+                    
+                    const startTime = formatMinutesToTime(offsetMin);
+                    const endTime = formatMinutesToTime(endMin);
+                    const label = `${startTime} — ${endTime}`;
+                    
+                    return (
+                      <div 
+                        className="absolute bg-blue-400/40 border border-blue-400/60 rounded pointer-events-none transition-all duration-150 flex items-center justify-center"
+                        style={{ 
+                          top, 
+                          height, 
+                          left: 2, 
+                          right: 2,
+                          zIndex: 45
+                        }} 
+                      >
+                        {height > 20 && (
+                          <span className="text-xs font-mono text-blue-100 bg-blue-800/90 px-1 rounded">
+                            {label}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
 
-                  {/* Resize ghost */}
+                  {/* Resize ghost with time label */}
                   {drag && (drag.kind === 'resize-start' || drag.kind === 'resize-end') && 
                   drag.dayUtc0 === dayUtc0 && (() => {
                     const startMin = Math.min(drag.curMin, drag.otherEndMin);
                     const endMin = Math.max(drag.curMin, drag.otherEndMin);
                     const top = minsToTop(startMin);
                     const height = Math.max(minsToTop(endMin - startMin), minsToTop(MIN_SLOT_MIN));
+                    
+                    const startTime = formatMinutesToTime(startMin);
+                    const endTime = formatMinutesToTime(endMin);
+                    const label = `${startTime} — ${endTime}`;
+                    
                     return (
                       <div 
-                        className="absolute bg-amber-400/40 border border-amber-400/60 rounded pointer-events-none z-30 animate-pulse"
-                        style={{ top, height, left: 2, right: 2, zIndex: 25 }} 
-                      />
+                        className="absolute bg-amber-400/40 border border-amber-400/60 rounded pointer-events-none transition-all duration-150 flex items-center justify-center"
+                        style={{ top, height, left: 2, right: 2, zIndex: 45 }} 
+                      >
+                        {height > 20 && (
+                          <span className="text-xs font-mono text-amber-100 bg-amber-800/90 px-1 rounded">
+                            {label}
+                          </span>
+                        )}
+                      </div>
                     );
                   })()}
                 </div>
