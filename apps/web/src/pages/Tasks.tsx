@@ -1,6 +1,6 @@
 // apps/web/src/pages/Tasks.tsx
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getTasks, createTask, updateTask, deleteTask, API_BASE } from '../api';
 import { TASK_PRIORITIES, getPriorityInfo } from '../types';
 import type { Task } from '../types';
@@ -15,6 +15,10 @@ export function Tasks() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(new Set());
+  const [dragOverInfo, setDragOverInfo] = useState<{ priority: number; index: number } | null>(null);
+  const [isReordering, setIsReordering] = useState(false);
+  
+  const liveRegionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadTasks();
@@ -23,9 +27,109 @@ export function Tasks() {
   const loadTasks = async () => {
     try {
       const allTasks = await getTasks();
-      setTasks(allTasks);
+      // Enhanced sorting to handle fractional priorities
+      setTasks(allTasks.sort((a, b) => {
+        if (Math.floor(a.priority) !== Math.floor(b.priority)) {
+          return Math.floor(a.priority) - Math.floor(b.priority);
+        }
+        if (a.priority !== b.priority) {
+          return a.priority - b.priority;
+        }
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }));
     } catch (error) {
       console.error('Failed to load tasks:', error);
+    }
+  };
+
+  const announceToLiveRegion = (message: string) => {
+    if (liveRegionRef.current) {
+      liveRegionRef.current.textContent = message;
+    }
+  };
+
+  const calculateNewPriority = (targetPriority: number, targetIndex: number, tasksInPriority: Task[]): number => {
+    const floor = Math.floor(targetPriority);
+    const ceiling = floor + 1;
+    
+    // If dropping at the beginning
+    if (targetIndex === 0) {
+      if (tasksInPriority.length === 0) {
+        return floor + 0.5;
+      }
+      const firstTask = tasksInPriority[0];
+      return Math.max(floor, firstTask.priority - 0.1);
+    }
+    
+    // If dropping at the end
+    if (targetIndex >= tasksInPriority.length) {
+      if (tasksInPriority.length === 0) {
+        return floor + 0.5;
+      }
+      const lastTask = tasksInPriority[tasksInPriority.length - 1];
+      return Math.min(ceiling - 0.001, lastTask.priority + 0.1);
+    }
+    
+    // If dropping between tasks
+    const prevTask = tasksInPriority[targetIndex - 1];
+    const nextTask = tasksInPriority[targetIndex];
+    
+    if (prevTask && nextTask) {
+      return (prevTask.priority + nextTask.priority) / 2;
+    } else if (prevTask) {
+      return Math.min(ceiling - 0.001, prevTask.priority + 0.1);
+    } else if (nextTask) {
+      return Math.max(floor, nextTask.priority - 0.1);
+    }
+    
+    return floor + 0.5;
+  };
+
+  const calculateInsertionIndex = (mouseY: number, containerRect: DOMRect, tasksInPriority: Task[]): number => {
+    if (tasksInPriority.length === 0) return 0;
+    
+    const headerHeight = 48; // Priority header height
+    const relativeY = mouseY - containerRect.top - headerHeight;
+    
+    if (relativeY <= 0) return 0;
+    
+    // Find all task elements and their midpoints within this priority column
+    const taskElements = Array.from(document.querySelectorAll(`[data-kanban-priority="${Math.floor(tasksInPriority[0].priority)}"] [data-task-kanban-index]`));
+    
+    for (let i = 0; i < taskElements.length; i++) {
+      const taskRect = taskElements[i].getBoundingClientRect();
+      const taskRelativeTop = taskRect.top - containerRect.top - headerHeight;
+      const taskMidpoint = taskRelativeTop + (taskRect.height / 2);
+      
+      if (relativeY < taskMidpoint) {
+        return i;
+      }
+    }
+    
+    return tasksInPriority.length;
+  };
+
+  const handleTaskReorder = async (draggedTask: Task, targetPriority: number, targetIndex: number) => {
+    try {
+      setIsReordering(true);
+      const tasksInTargetPriority = tasks
+        .filter(t => Math.floor(t.priority) === targetPriority && t.id !== draggedTask.id)
+        .sort((a, b) => a.priority - b.priority);
+      
+      const newPriority = calculateNewPriority(targetPriority, targetIndex, tasksInTargetPriority);
+      
+      await updateTask(draggedTask.id, { priority: newPriority });
+      
+      // Announce the move
+      const priorityName = getPriorityInfo(targetPriority).name;
+      announceToLiveRegion(`Moved "${draggedTask.title}" to position ${targetIndex + 1} in ${priorityName} priority`);
+      
+      loadTasks();
+    } catch (error) {
+      console.error('Failed to reorder task:', error);
+      announceToLiveRegion('Failed to move task');
+    } finally {
+      setIsReordering(false);
     }
   };
 
@@ -83,7 +187,7 @@ export function Tasks() {
 
   // Filter and sort tasks
   const filteredTasks = tasks.filter(task => {
-    if (selectedPriority !== 'all' && task.priority !== selectedPriority) return false;
+    if (selectedPriority !== 'all' && Math.floor(task.priority) !== selectedPriority) return false;
     if (selectedStatus !== 'all' && task.status !== selectedStatus) return false;
     if (selectedTags.length > 0 && !selectedTags.some(tag => task.tags.includes(tag))) return false;
     return true;
@@ -92,6 +196,9 @@ export function Tasks() {
   const sortedTasks = [...filteredTasks].sort((a, b) => {
     switch (sortBy) {
       case 'priority':
+        if (Math.floor(a.priority) !== Math.floor(b.priority)) {
+          return Math.floor(a.priority) - Math.floor(b.priority);
+        }
         return a.priority - b.priority;
       case 'created':
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
@@ -107,13 +214,27 @@ export function Tasks() {
 
   // Group by priority for Kanban view
   const tasksByPriority = sortedTasks.reduce((acc, task) => {
-    if (!acc[task.priority]) acc[task.priority] = [];
-    acc[task.priority].push(task);
+    const priority = Math.floor(task.priority);
+    if (!acc[priority]) acc[priority] = [];
+    acc[priority].push(task);
     return acc;
   }, {} as Record<number, Task[]>);
 
+  // Sort tasks within each priority by their exact priority value
+  Object.keys(tasksByPriority).forEach(priority => {
+    tasksByPriority[parseInt(priority)].sort((a, b) => a.priority - b.priority);
+  });
+
   return (
     <div className="h-full flex flex-col bg-black text-zinc-100 font-mono">
+      {/* ARIA Live Region */}
+      <div
+        ref={liveRegionRef}
+        className="sr-only"
+        aria-live="polite"
+        aria-atomic="true"
+      />
+
       {/* Header */}
       <header className="flex items-center justify-between p-4 border-b border-zinc-700 bg-zinc-900">
         <div className="flex items-center gap-4">
@@ -245,109 +366,199 @@ export function Tasks() {
             
             return (
               <div key={priority} className="w-80 flex flex-col">
-                <div className={`p-3 rounded-t font-semibold text-sm ${
-                  priority === 0 ? 'bg-blue-900 text-blue-100' :
-                  priority === 1 ? 'bg-red-900 text-red-100' :
-                  priority === 2 ? 'bg-orange-900 text-orange-100' :
-                  priority === 3 ? 'bg-yellow-900 text-yellow-100' :
-                  priority === 4 ? 'bg-green-900 text-green-100' :
-                  'bg-gray-900 text-gray-100'
-                }`}>
-                  {priority}: {info.name} ({priorityTasks.length})
-                </div>
-                
-                <div className="flex-1 bg-zinc-900 border border-zinc-700 border-t-0 rounded-b p-2 overflow-y-auto">
-                  <div className="space-y-2">
-                    {priorityTasks.map(task => (
-                      <div
-                        key={task.id}
-                        className="bg-zinc-800 border border-zinc-600 rounded p-3 hover:border-zinc-500 transition-colors"
-                        draggable
-                        onDragStart={(e) => {
-                          const dragData = JSON.stringify({
-                            type: 'task-priority-change',
-                            taskId: task.id,
-                            currentPriority: task.priority
-                          });
-                          e.dataTransfer.setData('application/json', dragData);
-                        }}
-                      >
-                        <div className="flex items-start gap-2">
-                          {bulkMode && (
-                            <input
-                              type="checkbox"
-                              checked={selectedTasks.has(task.id)}
-                              onChange={(e) => {
-                                const newSelected = new Set(selectedTasks);
-                                if (e.target.checked) {
-                                  newSelected.add(task.id);
-                                } else {
-                                  newSelected.delete(task.id);
-                                }
-                                setSelectedTasks(newSelected);
-                              }}
-                              className="mt-1"
-                            />
-                          )}
+                {/* ONE BIG DROP ZONE PER PRIORITY COLUMN */}
+                <div 
+                  className={`flex-1 flex flex-col transition-all duration-200 border-2 border-dashed rounded ${
+                    dragOverInfo?.priority === priority 
+                      ? 'border-blue-400 bg-blue-400/5' 
+                      : 'border-zinc-700'
+                  }`}
+                  data-kanban-priority={priority}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    const dragData = e.dataTransfer.getData('text/plain');
+                    if (dragData) {
+                      try {
+                        const parsed = JSON.parse(dragData);
+                        if (parsed.type === 'task-reorder') {
+                          setDragOverInfo({ priority, index: -1 });
                           
-                          <div className="flex-1">
-                            <h4 className="font-semibold text-sm">{task.title}</h4>
-                            
-                            {task.description && (
-                              <p className="text-xs text-zinc-400 mt-1 line-clamp-2">
-                                {task.description}
-                              </p>
+                          // Calculate insertion index based on mouse position for same-priority drops
+                          if (parsed.currentPriority === priority) {
+                            const containerRect = e.currentTarget.getBoundingClientRect();
+                            const insertIndex = calculateInsertionIndex(e.clientY, containerRect, priorityTasks);
+                            setDragOverInfo({ priority, index: insertIndex });
+                          }
+                        }
+                      } catch {}
+                    }
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      setDragOverInfo(null);
+                    }
+                  }}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    const currentDragOver = dragOverInfo;
+                    setDragOverInfo(null);
+                    
+                    try {
+                      const dragData = JSON.parse(e.dataTransfer.getData('text/plain'));
+                      if (dragData.type === 'task-reorder' && dragData.taskId) {
+                        const draggedTask = tasks.find(t => t.id === dragData.taskId);
+                        if (draggedTask) {
+                          let targetIndex;
+                          if (dragData.currentPriority !== priority) {
+                            // Different priority: append to end
+                            targetIndex = priorityTasks.length;
+                          } else {
+                            // Same priority: use calculated index
+                            targetIndex = currentDragOver?.index !== undefined && currentDragOver?.index !== -1 
+                              ? currentDragOver.index 
+                              : priorityTasks.length;
+                          }
+                          await handleTaskReorder(draggedTask, priority, targetIndex);
+                        }
+                      }
+                    } catch (error) {
+                      console.error('Failed to handle column drop:', error);
+                    }
+                  }}
+                >
+                  {/* Priority Header */}
+                  <div className={`p-3 rounded-t font-semibold text-sm ${
+                    priority === 0 ? 'bg-blue-900 text-blue-100' :
+                    priority === 1 ? 'bg-red-900 text-red-100' :
+                    priority === 2 ? 'bg-orange-900 text-orange-100' :
+                    priority === 3 ? 'bg-yellow-900 text-yellow-100' :
+                    priority === 4 ? 'bg-green-900 text-green-100' :
+                    'bg-gray-900 text-gray-100'
+                  }`}>
+                    {priority}: {info.name} ({priorityTasks.length})
+                  </div>
+                  
+                  {/* Tasks Container */}
+                  <div className="flex-1 bg-zinc-900 rounded-b p-2 overflow-y-auto">
+                    {priorityTasks.length === 0 ? (
+                      <div className="h-32 flex items-center justify-center text-zinc-500 text-sm border-2 border-dashed border-zinc-600/30 rounded">
+                        Drop tasks here
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {priorityTasks.map((task, index) => (
+                          <div key={`${task.id}-${index}`}>
+                            {/* Precise drop indicator for same-priority reordering */}
+                            {dragOverInfo?.priority === priority && 
+                             dragOverInfo?.index === index && 
+                             dragOverInfo?.index !== -1 && (
+                              <div className="h-1 bg-blue-400 rounded-full mb-2" />
                             )}
-                            
-                            <div className="flex items-center gap-3 mt-2 text-xs">
-                              {task.estimatedMinutes && (
-                                <span className="text-zinc-500">
-                                  ~{task.estimatedMinutes}m
-                                </span>
-                              )}
-                              
-                              {task.dueDate && (
-                                <span className={`${
-                                  new Date(task.dueDate) < new Date() 
-                                    ? 'text-red-400' 
-                                    : 'text-zinc-500'
-                                }`}>
-                                  {new Date(task.dueDate).toLocaleDateString()}
-                                </span>
-                              )}
-                              
-                              {task.status !== 'TODO' && (
-                                <span className={`px-1 rounded ${
-                                  task.status === 'DONE' ? 'bg-green-900 text-green-200' :
-                                  task.status === 'IN_PROGRESS' ? 'bg-blue-900 text-blue-200' :
-                                  task.status === 'SCHEDULED' ? 'bg-purple-900 text-purple-200' :
-                                  'bg-gray-900 text-gray-200'
-                                }`}>
-                                  {task.status}
-                                </span>
-                              )}
-                            </div>
-                            
-                            {task.tags.length > 0 && (
-                              <div className="flex flex-wrap gap-1 mt-2">
-                                {task.tags.map(tag => (
-                                  <span key={tag} className="text-xs text-zinc-500">
-                                    #{tag}
-                                  </span>
-                                ))}
+
+                            {/* Task Card */}
+                            <div
+                              className="bg-zinc-800 border border-zinc-600 rounded p-3 hover:border-zinc-500 transition-colors cursor-move"
+                              draggable
+                              data-task-kanban-index={index}
+                              onDragStart={(e) => {
+                                const dragData = JSON.stringify({
+                                  type: 'task-reorder',
+                                  taskId: task.id,
+                                  currentPriority: Math.floor(task.priority),
+                                  currentIndex: index
+                                });
+                                e.dataTransfer.setData('text/plain', dragData);
+                                e.dataTransfer.effectAllowed = 'move';
+                              }}
+                              onDragEnd={() => setDragOverInfo(null)}
+                            >
+                              <div className="flex items-start gap-2">
+                                {bulkMode && (
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedTasks.has(task.id)}
+                                    onChange={(e) => {
+                                      const newSelected = new Set(selectedTasks);
+                                      if (e.target.checked) {
+                                        newSelected.add(task.id);
+                                      } else {
+                                        newSelected.delete(task.id);
+                                      }
+                                      setSelectedTasks(newSelected);
+                                    }}
+                                    className="mt-1"
+                                  />
+                                )}
+                                
+                                <div className="flex-1">
+                                  <h4 className="font-semibold text-sm">{task.title}</h4>
+                                  
+                                  {task.description && (
+                                    <p className="text-xs text-zinc-400 mt-1 line-clamp-2">
+                                      {task.description}
+                                    </p>
+                                  )}
+                                  
+                                  <div className="flex items-center gap-3 mt-2 text-xs">
+                                    {task.estimatedMinutes && (
+                                      <span className="text-zinc-500">
+                                        ~{task.estimatedMinutes}m
+                                      </span>
+                                    )}
+                                    
+                                    {task.dueDate && (
+                                      <span className={`${
+                                        new Date(task.dueDate) < new Date() 
+                                          ? 'text-red-400' 
+                                          : 'text-zinc-500'
+                                      }`}>
+                                        {new Date(task.dueDate).toLocaleDateString()}
+                                      </span>
+                                    )}
+                                    
+                                    {task.status !== 'TODO' && (
+                                      <span className={`px-1 rounded ${
+                                        task.status === 'DONE' ? 'bg-green-900 text-green-200' :
+                                        task.status === 'IN_PROGRESS' ? 'bg-blue-900 text-blue-200' :
+                                        task.status === 'SCHEDULED' ? 'bg-purple-900 text-purple-200' :
+                                        'bg-gray-900 text-gray-200'
+                                      }`}>
+                                        {task.status}
+                                      </span>
+                                    )}
+                                  </div>
+                                  
+                                  {task.tags.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-2">
+                                      {task.tags.map(tag => (
+                                        <span key={tag} className="text-xs text-zinc-500">
+                                          #{tag}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                <button
+                                  onClick={() => setEditingTask(task)}
+                                  className="text-zinc-500 hover:text-zinc-300"
+                                >
+                                  ✏️
+                                </button>
                               </div>
+                            </div>
+
+                            {/* Final drop indicator */}
+                            {dragOverInfo?.priority === priority && 
+                             dragOverInfo?.index === index + 1 && 
+                             index === priorityTasks.length - 1 &&
+                             dragOverInfo?.index !== -1 && (
+                              <div className="h-1 bg-blue-400 rounded-full mt-2" />
                             )}
                           </div>
-                          
-                          <button
-                            onClick={() => setEditingTask(task)}
-                            className="text-zinc-500 hover:text-zinc-300"
-                          >
-                            ✏️
-                          </button>
-                        </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
               </div>
@@ -397,12 +608,38 @@ function TaskEditor({
   const [form, setForm] = useState({
     title: task?.title || '',
     description: task?.description || '',
-    priority: task?.priority || 3,
+    priority: Math.floor(task?.priority || 3), // Use integer priority in form
     status: task?.status || 'TODO',
     tags: task?.tags?.join(', ') || '',
     dueDate: task?.dueDate ? new Date(task.dueDate).toISOString().slice(0, 10) : '',
     estimatedMinutes: task?.estimatedMinutes || ''
   });
+
+  const [priorityChanged, setPriorityChanged] = useState(false);
+
+  const handlePriorityChange = (newPriority: number) => {
+    setForm({ ...form, priority: newPriority });
+    setPriorityChanged(true);
+  };
+
+  const handleSave = () => {
+    const updates: any = {
+      title: form.title.trim(),
+      description: form.description.trim(),
+      status: form.status,
+      tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
+      dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : undefined,
+      estimatedMinutes: form.estimatedMinutes ? Number(form.estimatedMinutes) : undefined
+    };
+
+    // Only update priority if it was explicitly changed (bucket change)
+    // or if this is a new task
+    if (!task || priorityChanged) {
+      updates.priority = form.priority;
+    }
+
+    onSave(updates);
+  };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
@@ -435,10 +672,15 @@ function TaskEditor({
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm text-zinc-400 mb-1">Priority</label>
+              <label className="block text-sm text-zinc-400 mb-1">
+                Priority
+                {task && !priorityChanged && (
+                  <span className="text-xs text-zinc-500 ml-1">(preserving fractional)</span>
+                )}
+              </label>
               <select
                 value={form.priority}
-                onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}
+                onChange={(e) => handlePriorityChange(Number(e.target.value))}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-600 rounded text-white"
               >
                 {Object.entries(TASK_PRIORITIES).map(([priority, info]) => (
@@ -508,15 +750,7 @@ function TaskEditor({
             Cancel
           </button>
           <button
-            onClick={() => onSave({
-              title: form.title.trim(),
-              description: form.description.trim(),
-              priority: form.priority,
-              status: form.status,
-              tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
-              dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : undefined,
-              estimatedMinutes: form.estimatedMinutes ? Number(form.estimatedMinutes) : undefined
-            })}
+            onClick={handleSave}
             disabled={!form.title.trim()}
             className="flex-1 px-4 py-2 bg-zinc-700 hover:bg-zinc-600 disabled:bg-zinc-800 text-white rounded"
           >
