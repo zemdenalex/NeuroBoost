@@ -5,6 +5,8 @@ const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_HEIGHT = 110;
 const BUFFER_WEEKS = 12; // Show 1 year above and below current
+const AUTO_SCROLL_ZONE = 50; // Pixels from edge to trigger auto-scroll
+const AUTO_SCROLL_SPEED = 3; // Pixels per frame
 
 // Helper functions
 function getWeekStart(date: Date): Date {
@@ -68,6 +70,7 @@ export function MonthlyView({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout>();
+  const autoScrollRef = useRef<number>();
 
   // Generate infinite grid of weeks around current month
   const weeksGrid = useMemo(() => {
@@ -180,6 +183,31 @@ export function MonthlyView({
     }, 100);
   }, [weeksGrid, currentViewMonth, onDateChange]);
 
+  // Auto-scroll logic for drag
+  const handleAutoScroll = useCallback((mouseY: number) => {
+    if (!scrollContainerRef.current || !isDragging) return;
+    
+    const container = scrollContainerRef.current;
+    const rect = container.getBoundingClientRect();
+    const relativeY = mouseY - rect.top;
+    
+    let scrollDelta = 0;
+    
+    // Near top edge
+    if (relativeY < AUTO_SCROLL_ZONE) {
+      scrollDelta = -AUTO_SCROLL_SPEED * Math.max(0.1, (AUTO_SCROLL_ZONE - relativeY) / AUTO_SCROLL_ZONE);
+    }
+    // Near bottom edge
+    else if (relativeY > rect.height - AUTO_SCROLL_ZONE) {
+      scrollDelta = AUTO_SCROLL_SPEED * Math.max(0.1, (relativeY - (rect.height - AUTO_SCROLL_ZONE)) / AUTO_SCROLL_ZONE);
+    }
+    
+    if (scrollDelta !== 0) {
+      container.scrollTop += scrollDelta;
+      autoScrollRef.current = requestAnimationFrame(() => handleAutoScroll(mouseY));
+    }
+  }, [isDragging]);
+
   // Set up scroll listener
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -234,6 +262,9 @@ export function MonthlyView({
       ev.preventDefault();
       document.getSelection()?.removeAllRanges();
       
+      // Handle auto-scroll
+      handleAutoScroll(ev.clientY);
+      
       const target = document.elementFromPoint(ev.clientX, ev.clientY);
       const dayCell = target?.closest('[data-date]');
       if (dayCell) {
@@ -249,11 +280,17 @@ export function MonthlyView({
     }
 
     function onMouseUp() {
+      if (autoScrollRef.current) {
+        cancelAnimationFrame(autoScrollRef.current);
+      }
+      
       if (dragState) {
         const daysDiff = Math.floor((dragState.endDate.getTime() - dragState.startDate.getTime()) / DAY_MS);
         if (daysDiff >= 1 && onCreateMultiDay) {
+          // Create all-day multi-day event
           onCreateMultiDay(dragState.startDate, dragState.endDate);
         } else if (daysDiff === 0 && onCreate) {
+          // Create single all-day event
           onCreate(dragState.startDate);
         }
       }
@@ -269,18 +306,18 @@ export function MonthlyView({
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
       document.removeEventListener('selectstart', (e) => e.preventDefault());
+      if (autoScrollRef.current) {
+        cancelAnimationFrame(autoScrollRef.current);
+      }
     };
-  }, [isDragging, dragState, onCreate, onCreateMultiDay]);
+  }, [isDragging, dragState, onCreate, onCreateMultiDay, handleAutoScroll]);
   
   const today = new Date();
 
-  // Check if a date is in the drag range
-  const isInDragRange = (date: Date) => {
+  // Check if a date is the drag target (only target cell highlighted)
+  const isDragTarget = (date: Date) => {
     if (!dragState || !isDragging) return false;
-    const dateTime = date.getTime();
-    const startTime = dragState.startDate.getTime();
-    const endTime = dragState.endDate.getTime();
-    return dateTime >= startTime && dateTime <= endTime;
+    return isSameDay(date, dragState.endDate);
   };
   
   const getCurrentMonthName = () => {
@@ -362,7 +399,7 @@ export function MonthlyView({
                 const isCurrentMonth = isDateInCurrentMonth(date, currentViewMonth);
                 const isToday = isSameDay(date, today);
                 const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-                const inDragRange = isInDragRange(date);
+                const isTarget = isDragTarget(date);
                 
                 // Limit events for clean display
                 const maxEvents = 2;
@@ -378,7 +415,7 @@ export function MonthlyView({
                       transition-colors hover:bg-zinc-800/30 flex flex-col
                       ${!isCurrentMonth ? 'text-zinc-500 bg-zinc-900/50' : 'text-zinc-200'}
                       ${isWeekend && isCurrentMonth ? 'bg-zinc-800/20' : ''}
-                      ${inDragRange ? 'bg-emerald-400/30 ring-1 ring-emerald-400/40' : ''}
+                      ${isTarget ? 'bg-emerald-400/30 ring-1 ring-emerald-400/40' : ''}
                     `}
                     onClick={() => onDayClick?.(date)}
                     onDoubleClick={(e) => {
@@ -470,8 +507,10 @@ export function MonthlyView({
           </span>
           <div className="flex items-center gap-4">
             <span>Click: week view</span>
-            <span>Double-click: create</span>
-            <span>Drag: multi-day</span>
+            <span>Double-click: create all-day</span>
+            <span>Drag: multi-day all-day</span>
+            <span className="text-zinc-600">•</span>
+            <span className="text-zinc-400 italic">Tip: Use Week view for timed events</span>
           </div>
         </div>
       </div>
