@@ -18,8 +18,13 @@ out/
 github* 
 
 #Private info
-private/
-log/
+private/** 
+logs/** 
+**/backup_*.sql*
+**/ssl/** 
+*.local.* 
+*.env
+**/.DS_Store
 
 # Environment files (keep templates)
 .env
