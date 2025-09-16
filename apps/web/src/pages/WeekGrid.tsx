@@ -820,7 +820,7 @@ export function WeekGrid({
                 {/* Day header */}
                 <div 
                   className="bg-zinc-900 border-b border-zinc-700 sticky" 
-                  style={{ top: ALL_DAY_HEIGHT, zIndex: 20, height: DAY_HEADER_HEIGHT }}
+                  style={{ top: ALL_DAY_HEIGHT, zIndex: 25, height: DAY_HEADER_HEIGHT }}
                 >
                   <div className="text-xs px-2 py-1 text-zinc-300 font-medium">
                     {dayLabel}
@@ -1060,7 +1060,7 @@ export function WeekGrid({
                     return (
                       <div 
                         className="absolute bg-emerald-400/40 border border-emerald-400/60 rounded pointer-events-none transition-all duration-150"
-                        style={{ top: clippedTop, height: clippedHeight, left: 2, right: 2, zIndex: 45 }} 
+                        style={{ top: clippedTop, height: clippedHeight, left: 2, right: 2, zIndex: 15 }} 
                       >
                         {/* Smart label positioning based on ghost size */}
                         {clippedHeight > 40 ? (
@@ -1132,7 +1132,7 @@ export function WeekGrid({
                           borderRadius: isStartDay && isEndDay ? '4px' :
                                         isStartDay ? '4px 4px 0 0' :
                                         isEndDay ? '0 0 4px 4px' : '0',
-                          zIndex: 45
+                          zIndex: 15
                         }} 
                       >
                         {/* Smart label positioning for multi-day */}
@@ -1185,7 +1185,7 @@ export function WeekGrid({
                           height: clippedHeight, 
                           left: 2, 
                           right: 2,
-                          zIndex: 45
+                          zIndex: 15
                         }} 
                       >
                         {clippedHeight > 40 ? (
@@ -1231,7 +1231,7 @@ export function WeekGrid({
                     return (
                       <div 
                         className="absolute bg-amber-400/40 border border-amber-400/60 rounded pointer-events-none transition-all duration-150"
-                        style={{ top: clippedTop, height: clippedHeight, left: 2, right: 2, zIndex: 45 }} 
+                        style={{ top: clippedTop, height: clippedHeight, left: 2, right: 2, zIndex: 15 }} 
                       >
                         {clippedHeight > 40 ? (
                           <>
