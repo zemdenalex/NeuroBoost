@@ -7,6 +7,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_PX = 44;
 const MIN_SLOT_MIN = 15;
 const ALL_DAY_HEIGHT = 80;
+const DAY_HEADER_HEIGHT = 32;
 const MOBILE_BREAKPOINT = 768;
 
 type EvLite = { id?: string; startUtc: string; endUtc: string; allDay?: boolean };
@@ -242,7 +243,7 @@ export function WeekGrid({
   
   useEffect(() => { containerRef.current?.focus(); }, []);
 
-  // Auto-scroll functions
+  // Auto-scroll functions with continuous movement
   const startAutoScroll = (direction: 'up' | 'down') => {
     if (autoScrollRef.current || !scrollContainerRef.current) return;
     
@@ -320,6 +321,8 @@ export function WeekGrid({
   const dragMetaRef = useRef<{ colTop: number; scrollStart: number; allDayTop?: number } | null>(null);
 
   useEffect(() => {
+    let lastAutoScrollCheck = { direction: null as 'up' | 'down' | null, time: 0 };
+
     function onMove(ev: MouseEvent) {
       if (!drag || !scrollContainerRef.current || !dragMetaRef.current) return;
       
@@ -328,17 +331,40 @@ export function WeekGrid({
       const scrollTop = scrollContainer.scrollTop;
       const scrollRect = scrollContainer.getBoundingClientRect();
       
-      // Auto-scroll detection - check if mouse is within 24px of top/bottom edges
+      // Auto-scroll detection - only trigger in time grid area
       const EDGE_THRESHOLD = 24;
       const mouseYRelativeToContainer = ev.clientY - scrollRect.top;
+      const timeGridStartY = ALL_DAY_HEIGHT + DAY_HEADER_HEIGHT;
       
-      if (mouseYRelativeToContainer < EDGE_THRESHOLD && scrollTop > 0) {
-        startAutoScroll('up');
-      } else if (mouseYRelativeToContainer > scrollRect.height - EDGE_THRESHOLD && 
-                 scrollTop < scrollContainer.scrollHeight - scrollContainer.clientHeight) {
-        startAutoScroll('down');
+      // Check if mouse is in time grid area and near edges
+      if (mouseYRelativeToContainer >= timeGridStartY) {
+        const mouseYInTimeGrid = mouseYRelativeToContainer - timeGridStartY;
+        const timeGridHeight = scrollRect.height - timeGridStartY;
+        
+        const now = Date.now();
+        let newDirection: 'up' | 'down' | null = null;
+        
+        if (mouseYInTimeGrid < EDGE_THRESHOLD && scrollTop > 0) {
+          newDirection = 'up';
+        } else if (mouseYInTimeGrid > timeGridHeight - EDGE_THRESHOLD && 
+                   scrollTop < scrollContainer.scrollHeight - scrollContainer.clientHeight) {
+          newDirection = 'down';
+        }
+        
+        // Only change auto-scroll if direction changed or enough time passed
+        if (newDirection !== lastAutoScrollCheck.direction || now - lastAutoScrollCheck.time > 100) {
+          if (newDirection) {
+            startAutoScroll(newDirection);
+          } else {
+            stopAutoScroll();
+          }
+          lastAutoScrollCheck = { direction: newDirection, time: now };
+        }
       } else {
-        stopAutoScroll();
+        if (lastAutoScrollCheck.direction !== null) {
+          stopAutoScroll();
+          lastAutoScrollCheck = { direction: null, time: Date.now() };
+        }
       }
       
       const isInAllDay = allDayTop !== undefined && ev.clientY >= allDayTop && ev.clientY <= allDayTop + ALL_DAY_HEIGHT;
@@ -792,7 +818,10 @@ export function WeekGrid({
             return (
               <div key={i} className="border-r border-zinc-700 last:border-r-0 flex flex-col bg-black">
                 {/* Day header */}
-                <div className="bg-zinc-900 border-b border-zinc-700 sticky" style={{ top: ALL_DAY_HEIGHT, zIndex: 20 }}>
+                <div 
+                  className="bg-zinc-900 border-b border-zinc-700 sticky" 
+                  style={{ top: ALL_DAY_HEIGHT, zIndex: 20, height: DAY_HEADER_HEIGHT }}
+                >
                   <div className="text-xs px-2 py-1 text-zinc-300 font-medium">
                     {dayLabel}
                   </div>
@@ -832,19 +861,27 @@ export function WeekGrid({
                   onTouchMove={(e) => {
                     if (!touchStart) return;
                     
-                    // Auto-scroll detection for touch
+                    // Auto-scroll detection for touch - same logic as mouse
                     const touch = e.touches[0];
                     const scrollContainer = scrollContainerRef.current;
                     if (scrollContainer) {
                       const scrollRect = scrollContainer.getBoundingClientRect();
                       const touchYRelativeToContainer = touch.clientY - scrollRect.top;
+                      const timeGridStartY = ALL_DAY_HEIGHT + DAY_HEADER_HEIGHT;
                       const EDGE_THRESHOLD = 24;
                       
-                      if (touchYRelativeToContainer < EDGE_THRESHOLD && scrollContainer.scrollTop > 0) {
-                        startAutoScroll('up');
-                      } else if (touchYRelativeToContainer > scrollRect.height - EDGE_THRESHOLD && 
-                                 scrollContainer.scrollTop < scrollContainer.scrollHeight - scrollContainer.clientHeight) {
-                        startAutoScroll('down');
+                      if (touchYRelativeToContainer >= timeGridStartY) {
+                        const touchYInTimeGrid = touchYRelativeToContainer - timeGridStartY;
+                        const timeGridHeight = scrollRect.height - timeGridStartY;
+                        
+                        if (touchYInTimeGrid < EDGE_THRESHOLD && scrollContainer.scrollTop > 0) {
+                          startAutoScroll('up');
+                        } else if (touchYInTimeGrid > timeGridHeight - EDGE_THRESHOLD && 
+                                   scrollContainer.scrollTop < scrollContainer.scrollHeight - scrollContainer.clientHeight) {
+                          startAutoScroll('down');
+                        } else {
+                          stopAutoScroll();
+                        }
                       } else {
                         stopAutoScroll();
                       }
@@ -1004,7 +1041,7 @@ export function WeekGrid({
                     );
                   })}
 
-                  {/* Create ghost (timed) with time label */}
+                  {/* Create ghost (timed) with smart label positioning */}
                   {drag && drag.kind === 'create' && !drag.allDay && 
                    drag.startDayUtc0 === dayUtc0 && drag.endDayUtc0 === dayUtc0 && (() => {
                     const a = Math.min(drag.startMin, drag.curMin);
@@ -1012,25 +1049,47 @@ export function WeekGrid({
                     const top = minsToTop(a);
                     const height = Math.max(minsToTop(b - a), minsToTop(MIN_SLOT_MIN));
                     
+                    // Clip ghost to time grid bounds (start at 0, no negative values)
+                    const clippedTop = Math.max(0, top);
+                    const maxHeight = (isMobile ? 16 : 24) * HOUR_PX - clippedTop;
+                    const clippedHeight = Math.max(minsToTop(MIN_SLOT_MIN), Math.min(height, maxHeight));
+                    
                     const startTime = formatMinutesToTime(a);
                     const endTime = formatMinutesToTime(b);
-                    const label = `${startTime} — ${endTime}`;
                     
                     return (
                       <div 
-                        className="absolute bg-emerald-400/40 border border-emerald-400/60 rounded pointer-events-none transition-all duration-150 flex items-center justify-center"
-                        style={{ top, height, left: 2, right: 2, zIndex: 45 }} 
+                        className="absolute bg-emerald-400/40 border border-emerald-400/60 rounded pointer-events-none transition-all duration-150"
+                        style={{ top: clippedTop, height: clippedHeight, left: 2, right: 2, zIndex: 45 }} 
                       >
-                        {height > 20 && (
-                          <span className="text-xs font-mono text-emerald-100 bg-emerald-800/90 px-1 rounded">
-                            {label}
-                          </span>
-                        )}
+                        {/* Smart label positioning based on ghost size */}
+                        {clippedHeight > 40 ? (
+                          // Large enough for both labels
+                          <>
+                            <div className="absolute top-1 left-1">
+                              <span className="text-xs font-mono text-emerald-100 bg-emerald-800/90 px-1 rounded">
+                                {startTime}
+                              </span>
+                            </div>
+                            <div className="absolute bottom-1 right-1">
+                              <span className="text-xs font-mono text-emerald-100 bg-emerald-800/90 px-1 rounded">
+                                {endTime}
+                              </span>
+                            </div>
+                          </>
+                        ) : clippedHeight > 20 ? (
+                          // Small - just show time range centered
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-[10px] font-mono text-emerald-100 bg-emerald-800/90 px-1 rounded">
+                              {startTime}–{endTime}
+                            </span>
+                          </div>
+                        ) : null /* Too small for any label */}
                       </div>
                     );
                   })()}
 
-                  {/* Multi-day timed create ghost with time labels */}
+                  {/* Multi-day timed create ghost with smart labels */}
                   {drag && drag.kind === 'create' && drag.isMultiDayTimed && (
                     drag.startDayUtc0 === dayUtc0 || drag.endDayUtc0 === dayUtc0 || 
                     (dayUtc0 > Math.min(drag.startDayUtc0, drag.endDayUtc0) && 
@@ -1045,27 +1104,29 @@ export function WeekGrid({
                     
                     let top, height;
                     if (isStartDay) {
-                      // Show from start time to end of day
                       const startMin = drag.startDayUtc0 === startDayUtc0 ? drag.startMin : drag.curMin;
                       top = minsToTop(startMin);
-                      height = minsToTop(1440) - top; // To end of day
+                      height = minsToTop(1440) - top;
                     } else if (isEndDay) {
-                      // Show from start of day to end time  
                       const endMin = drag.endDayUtc0 === dayUtc0 ? drag.curMin : drag.startMin;
                       top = 0;
                       height = minsToTop(endMin);
                     } else {
-                      // Full day for middle days
                       top = 0;
                       height = minsToTop(1440);
                     }
                     
+                    // Clip to time grid bounds
+                    const clippedTop = Math.max(0, top);
+                    const maxHeight = (isMobile ? 16 : 24) * HOUR_PX - clippedTop;
+                    const clippedHeight = Math.max(0, Math.min(height, maxHeight));
+                    
                     return (
                       <div 
-                        className="absolute bg-purple-400/40 border border-purple-400/60 pointer-events-none transition-all duration-150 flex flex-col items-center justify-center"
+                        className="absolute bg-purple-400/40 border border-purple-400/60 pointer-events-none transition-all duration-150"
                         style={{ 
-                          top, 
-                          height, 
+                          top: clippedTop, 
+                          height: clippedHeight, 
                           left: 2, 
                           right: 2,
                           borderRadius: isStartDay && isEndDay ? '4px' :
@@ -1074,27 +1135,33 @@ export function WeekGrid({
                           zIndex: 45
                         }} 
                       >
-                        {/* Add time labels for clarity */}
-                        {isStartDay && height > 30 && (
-                          <div className="text-[10px] text-purple-100 bg-purple-800/80 px-1 rounded mb-1">
-                            {formatMinutesToTime(drag.startMin)}
+                        {/* Smart label positioning for multi-day */}
+                        {isStartDay && clippedHeight > 24 && (
+                          <div className="absolute top-1 left-1">
+                            <span className="text-xs font-mono text-purple-100 bg-purple-800/80 px-1 rounded">
+                              {formatMinutesToTime(drag.startMin)}
+                            </span>
                           </div>
                         )}
-                        {isEndDay && height > 30 && (
-                          <div className="text-[10px] text-purple-100 bg-purple-800/80 px-1 rounded mt-1">
-                            {formatMinutesToTime(drag.curMin)}
+                        {isEndDay && clippedHeight > 24 && (
+                          <div className="absolute bottom-1 right-1">
+                            <span className="text-xs font-mono text-purple-100 bg-purple-800/80 px-1 rounded">
+                              {formatMinutesToTime(drag.curMin)}
+                            </span>
                           </div>
                         )}
-                        {isMiddleDay && height > 30 && (
-                          <div className="text-[10px] text-purple-100 bg-purple-800/80 px-1 rounded">
-                            continues...
+                        {isMiddleDay && clippedHeight > 30 && (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-[10px] text-purple-100 bg-purple-800/80 px-1 rounded">
+                              continues...
+                            </span>
                           </div>
                         )}
                       </div>
                     );
                   })()}
 
-                  {/* Move ghost with time label */}
+                  {/* Move ghost with smart labels */}
                   {drag && drag.kind === 'move' && !drag.allDay && 
                    (drag.targetDayUtc0 === dayUtc0 || (!drag.targetDayUtc0 && drag.dayUtc0 === dayUtc0)) && (() => {
                     const offsetMin = clampMins(snapMin(drag.offsetMin));
@@ -1102,31 +1169,50 @@ export function WeekGrid({
                     const top = minsToTop(offsetMin);
                     const height = minsToTop(drag.durMin);
                     
+                    // Clip to time grid bounds
+                    const clippedTop = Math.max(0, top);
+                    const maxHeight = (isMobile ? 16 : 24) * HOUR_PX - clippedTop;
+                    const clippedHeight = Math.max(minsToTop(MIN_SLOT_MIN), Math.min(height, maxHeight));
+                    
                     const startTime = formatMinutesToTime(offsetMin);
                     const endTime = formatMinutesToTime(endMin);
-                    const label = `${startTime} — ${endTime}`;
                     
                     return (
                       <div 
-                        className="absolute bg-blue-400/40 border border-blue-400/60 rounded pointer-events-none transition-all duration-150 flex items-center justify-center"
+                        className="absolute bg-blue-400/40 border border-blue-400/60 rounded pointer-events-none transition-all duration-150"
                         style={{ 
-                          top, 
-                          height, 
+                          top: clippedTop, 
+                          height: clippedHeight, 
                           left: 2, 
                           right: 2,
                           zIndex: 45
                         }} 
                       >
-                        {height > 20 && (
-                          <span className="text-xs font-mono text-blue-100 bg-blue-800/90 px-1 rounded">
-                            {label}
-                          </span>
-                        )}
+                        {clippedHeight > 40 ? (
+                          <>
+                            <div className="absolute top-1 left-1">
+                              <span className="text-xs font-mono text-blue-100 bg-blue-800/90 px-1 rounded">
+                                {startTime}
+                              </span>
+                            </div>
+                            <div className="absolute bottom-1 right-1">
+                              <span className="text-xs font-mono text-blue-100 bg-blue-800/90 px-1 rounded">
+                                {endTime}
+                              </span>
+                            </div>
+                          </>
+                        ) : clippedHeight > 20 ? (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-[10px] font-mono text-blue-100 bg-blue-800/90 px-1 rounded">
+                              {startTime}–{endTime}
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })()}
 
-                  {/* Resize ghost with time label */}
+                  {/* Resize ghost with smart labels */}
                   {drag && (drag.kind === 'resize-start' || drag.kind === 'resize-end') && 
                   drag.dayUtc0 === dayUtc0 && (() => {
                     const startMin = Math.min(drag.curMin, drag.otherEndMin);
@@ -1134,20 +1220,39 @@ export function WeekGrid({
                     const top = minsToTop(startMin);
                     const height = Math.max(minsToTop(endMin - startMin), minsToTop(MIN_SLOT_MIN));
                     
+                    // Clip to time grid bounds
+                    const clippedTop = Math.max(0, top);
+                    const maxHeight = (isMobile ? 16 : 24) * HOUR_PX - clippedTop;
+                    const clippedHeight = Math.max(minsToTop(MIN_SLOT_MIN), Math.min(height, maxHeight));
+                    
                     const startTime = formatMinutesToTime(startMin);
                     const endTime = formatMinutesToTime(endMin);
-                    const label = `${startTime} — ${endTime}`;
                     
                     return (
                       <div 
-                        className="absolute bg-amber-400/40 border border-amber-400/60 rounded pointer-events-none transition-all duration-150 flex items-center justify-center"
-                        style={{ top, height, left: 2, right: 2, zIndex: 45 }} 
+                        className="absolute bg-amber-400/40 border border-amber-400/60 rounded pointer-events-none transition-all duration-150"
+                        style={{ top: clippedTop, height: clippedHeight, left: 2, right: 2, zIndex: 45 }} 
                       >
-                        {height > 20 && (
-                          <span className="text-xs font-mono text-amber-100 bg-amber-800/90 px-1 rounded">
-                            {label}
-                          </span>
-                        )}
+                        {clippedHeight > 40 ? (
+                          <>
+                            <div className="absolute top-1 left-1">
+                              <span className="text-xs font-mono text-amber-100 bg-amber-800/90 px-1 rounded">
+                                {startTime}
+                              </span>
+                            </div>
+                            <div className="absolute bottom-1 right-1">
+                              <span className="text-xs font-mono text-amber-100 bg-amber-800/90 px-1 rounded">
+                                {endTime}
+                              </span>
+                            </div>
+                          </>
+                        ) : clippedHeight > 20 ? (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-[10px] font-mono text-amber-100 bg-amber-800/90 px-1 rounded">
+                              {startTime}–{endTime}
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })()}
