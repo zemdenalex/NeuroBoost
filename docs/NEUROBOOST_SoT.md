@@ -219,6 +219,897 @@ NeuroBoost is a calendar‑first personal assistant designed to **push planning,
 
 ---
 
+### Version 0.3.x Mission Statement
+
+Version 0.3.x exists to transform NeuroBoost from a "mostly working demo" into a "reliable daily driver." Every feature that exists in the UI should work exactly as expected. No new features until everything current is rock-solid. This is about building trust with the system - if dragging a task to the calendar fails, users won't trust anything else.
+
+By the end of v0.3.x:
+
+- Denis can use NeuroBoost for 48 hours straight without encountering a single broken feature
+- Every drag operation works smoothly
+- The Telegram bot responds correctly to all existing commands
+- The VPS deployment is secure with SSL
+- Documentation exists for every module
+
+---
+
+### Current State Analysis (v0.3.0 → v0.3.1)
+
+#### What's Working
+
+- Basic week/month view rendering
+- Event creation via drag (with limitations)
+- Task creation and priority system
+- Telegram bot basic structure
+- Database schema and API endpoints
+- Reflection system (focus/goal/mood)
+- Stats calculation
+- VPS deployment (HTTP only)
+
+#### What's Completely Broken
+
+1. **Drag Task to Calendar** - Throws "Validation error" every time
+2. **Event Resizing** - Feature doesn't exist despite being in spec
+3. **Multi-day Timed Events** - Cannot create events crossing midnight
+4. **Manual Time Input** - No way to input precise times like 10:50 or 12:25
+5. **Recurring Events** - Not implemented
+6. **Mobile Drag to Create** - Doesn't work at all on touch devices
+
+#### What's Partially Broken
+
+1. **Month View** - Can't properly scroll between months, ghost previews don't work right
+2. **Telegram Keyboard** - Moves up with notifications (inline buttons instead of reply buttons)
+3. **Task Display in Bot** - Shows too few tasks
+
+#### What's Missing but Expected
+
+1. **SSL Certificate** - Security risk
+2. **Health Checks** - No monitoring
+3. **Error Recovery** - Fails silently
+4. **Module Documentation** - No guides for development
+5. **Data Validation** - Accepts invalid inputs
+6. Authentication - Anyone can see my tasks and calendar just by having address
+
+---
+
+### Version 0.3.1: Core Functionality Fixes
+
+**Timeline:** 5-7 days  
+**Theme:** "The Big Fix"  
+**Success Criteria:** All drag operations work, all time-related bugs fixed
+#### Priority 1: Multi-day Timed Events (Day 3-4)
+
+**Current Behavior:**
+
+- Cannot create event from 22:00 to 06:00 next day
+- System confused about which day the event ends
+
+**Expected Behavior:**
+
+- Drag from Monday 22:00 to Tuesday 06:00 creates single event
+- Event shows on both days
+- Clear visual indication of continuation
+
+**Implementation Requirements:**
+
+1. **Creation Flow:**
+    
+    - Allow drag across day boundaries in week view
+    - Calculate total duration correctly
+    - Store as single event with multi-day flag
+2. **Display Logic:**
+    
+    - Split rendering across days
+    - Show "continues from previous day" indicator
+    - Show "continues to next day" indicator
+    - Correct height calculation for each segment
+3. **Edge Cases:**
+    
+    - Events spanning multiple days (concert festival)
+    - Events starting at exactly midnight
+    - Events ending at exactly midnight
+    - Weekend wrap-around
+
+**Testing Checklist:**
+
+- [ ] Create sleep event (22:00-06:00)
+- [ ] Create weekend event (Fri 18:00-Mon 09:00)
+- [ ] Move multi-day event
+- [ ] Resize multi-day event
+- [ ] Delete multi-day event
+
+#### Priority 2: Manual Time Input (Day 4-5)
+
+**Current Behavior:**
+
+- Can only set times by dragging to grid positions
+- Grid snaps to 15-minute intervals
+- Cannot set precise times like 10:50
+
+**Expected Behavior:**
+
+- Click on time in event editor opens input
+- Can type exact time
+- Validates format and range
+- Updates event immediately
+
+**Implementation Requirements:**
+
+1. **UI Components:**
+    
+    - Replace time display with input fields on click
+    - Support formats: "10:50", "1050", "10:50 AM"
+    - Show validation errors inline
+2. **Validation Rules:**
+    
+    - Valid time range (00:00-23:59)
+    - End time after start time
+    - Handle day boundary logic
+3. **User Experience:**
+    
+    - Tab between start and end time
+    - Enter key saves
+    - Escape cancels edit
+    - Click outside saves if valid
+
+**Testing Checklist:**
+
+- [ ] Enter valid times
+- [ ] Enter invalid formats
+- [ ] Set end before start
+- [ ] Quick entry (1050 → 10:50)
+- [ ] AM/PM handling
+
+#### Priority 3: Month View Improvements (Day 5-6)
+
+**Current Issues:**
+
+- Cannot scroll between months (only buttons work)
+- Ghost preview missing on weekends
+- Ghost missing on source day during drag
+- Cannot create events longer than visible month
+
+**Fix Requirements:**
+
+1. **Scrolling:**
+    
+    - Add vertical scroll for continuous months
+    - Update current month indicator based on viewport
+    - Lazy load months as needed
+    - Smooth scroll to today button
+2. **Ghost Previews:**
+    
+    - Fix weekend highlighting
+    - Show ghost on drag source
+    - Consistent ghost across all days
+3. **Multi-month Events:**
+    
+    - Allow drag beyond visible month
+    - Auto-scroll when near edges
+    - Show event spanning months
+
+**Testing Checklist:**
+
+- [ ] Scroll through 12 months
+- [ ] Create event on weekend
+- [ ] Create 3-month event
+- [ ] Performance with 100+ events
+
+#### Priority 4: Touch Support (Day 6-7)
+
+**Current Behavior:**
+
+- Drag to create doesn't work on mobile/tablet
+- Can't resize on touch devices
+- Can't scroll while dragging
+
+**Expected Behavior:**
+
+- Long press to start drag
+- Visual feedback for touch
+- Scroll while dragging near edges
+
+**Implementation Requirements:**
+
+1. **Touch Events:**
+    
+    - Handle touchstart/touchmove/touchend
+    - Long press (500ms) to initiate drag
+    - Prevent default scrolling during drag
+2. **Mobile UX:**
+    
+    - Larger touch targets (min 44px)
+    - Haptic feedback if available
+    - Cancel drag on multitouch
+3. **Responsive Adjustments:**
+    
+    - Single day view on phones
+    - 3-day view on tablets
+    - Bigger handles for resize
+
+**Testing Checklist:**
+
+- [ ] Create event on iPhone
+- [ ] Create event on Android
+- [ ] Resize on tablet
+- [ ] Scroll while viewing
+
+---
+
+### Version 0.3.2: Telegram Bot Rehabilitation
+
+**Timeline:** 3-4 days  
+**Theme:** "Bot That Actually Works"  
+**Success Criteria:** All bot commands work, keyboard doesn't jump
+
+#### Fix 1: Keyboard Management
+
+**Current Problem:**
+
+- Inline keyboard moves up with each message
+- Need to scroll or /start to see buttons again
+
+**Solution Approach:**
+
+1. Switch from inline keyboards to reply keyboards where appropriate
+2. Keep main menu as persistent keyboard
+3. Use inline only for contextual actions
+4. Consider separate notification bot
+
+**Implementation:**
+
+- Main menu: Reply keyboard (always visible)
+- Actions: Inline keyboards (temporary)
+- Notifications: Separate bot, simple keyboards to answer notifications (later versions), like delay, postpone, mark done, reflect, etc.
+
+#### Fix 2: Task Display
+
+**Current Problem:**
+
+- Shows only 3-5 tasks
+- No pagination
+- Can't see all priorities
+
+**Solution Requirements:**
+
+1. Show tasks grouped by priority
+2. Pagination with "Show more" button
+3. Summary count at top
+4. Filter options
+
+**Display Format:**
+
+```
+📋 Tasks (23 total)
+
+🔴 Emergency (1)
+- Fix production database
+
+🟡 Must Today (3)
+- Review PR #45
+- Call with client
+- Send weekly report
+
+[Show more...] [Filter]
+```
+
+#### Fix 3: Command Structure
+
+**Add Basic Commands:**
+
+- `/start` - Show main menu
+- `/help` - List all commands
+- `/tasks` - Show task list
+- `/today` - Today's agenda
+- `/week` - Week overview
+
+**Keep Keyboard Flow:**
+
+- Main interactions still via keyboard
+- Commands as shortcuts
+- Consistent navigation
+
+#### Fix 4: Event Display
+
+**Current:** Basic list **Needed:** Structured timeline
+
+```
+📅 Today - Sept 4
+
+Morning:
+09:00-10:00 📘 Team standup
+10:30-12:00 📗 Deep work
+
+Afternoon:
+14:00-15:00 📘 Client call
+16:00-17:00 📗 Code review
+
+Evening:
+No events planned
+```
+
+#### Fix 5: Reflection Prompts
+
+**Implementation:**
+
+- Store pending reflections
+- Send reminder after event ends
+- One-click reflection start
+- Guide through focus/goal/mood
+
+#### Fix 6: Error Messages
+
+**Current:** Silent failures or generic errors **Needed:** Helpful, specific messages
+
+Examples:
+
+- "Task creation failed" → "Please add a task title"
+- "Invalid input" → "Priority must be 0-5"
+- Connection errors → "Server unavailable, try again in a moment"
+
+---
+
+### Version 0.3.3: Infrastructure & Health
+
+**Timeline:** 2-3 days  
+**Theme:** "Production Ready"  
+**Success Criteria:** SSL working, monitoring active, errors logged
+
+#### Priority 1: SSL Certificate
+
+**Requirements:**
+
+1. Let's Encrypt certificate
+2. Auto-renewal setup
+3. Redirect HTTP to HTTPS
+4. Update all API URLs
+
+**Implementation Steps:**
+
+1. Install certbot
+2. Generate certificate for domain
+3. Configure nginx for SSL
+4. Setup auto-renewal cron
+5. Test SSL Labs rating (aim for A)
+
+#### Priority 2: Health Monitoring
+
+**Endpoints Needed:**
+
+- `/health` - Basic alive check
+- `/health/detailed` - Database, disk, memory
+- `/health/dependencies` - External services
+
+**Monitoring Setup:**
+
+1. Uptime monitoring (every 5 min)
+2. Alert if down >2 checks
+3. Daily health report
+4. Performance metrics
+
+#### Priority 3: Error Handling
+
+**Requirements:**
+
+1. Catch all unhandled errors
+2. Log with context
+3. User-friendly messages
+4. Recovery procedures
+
+**Error Categories:**
+
+- Database connection lost → Retry with backoff
+- Invalid user input → Clear error message
+- Server errors → Log and notify admin
+- Rate limits → Queue and retry
+
+#### Priority 4: Backup System
+
+**Daily Backups:**
+
+1. Database dump at 3 AM MSK
+2. Compress and encrypt
+3. Store locally + remote
+4. Keep 30 days of backups
+5. Test restore monthly
+
+#### Priority 5: Logging Enhancement
+
+**Structured Logging:**
+
+- Request ID for tracing
+- User context
+- Performance metrics
+- Error stack traces
+- Daily rotation
+
+---
+
+### Version 0.3.4: Polish & Small Features
+
+**Timeline:** 2-3 days  
+**Theme:** "Nice to Haves"  
+**Success Criteria:** Colors working, recurring events tested
+
+#### Feature 1: Event/Task Colors
+
+**Implementation:**
+
+- 8 preset colors
+- Color picker in advanced options
+- Colors by category mapping
+- Consistent across views
+
+**Categories & Default Colors:**
+
+- Work/Professional - Blue (#3B82F6)
+- Education/Learning - Purple (#8B5CF6)
+- Health/Exercise - Green (#10B981)
+- Social/Family - Pink (#EC4899)
+- Routine/Chores - Gray (#6B7280)
+- Hobbies/Fun - Orange (#F97316)
+- Rest/Sleep - Indigo (#6366F1)
+- Other/Default - Zinc (#71717A)
+
+#### Feature 2: Recurring Events Testing
+
+**Test Scenarios:**
+
+1. Daily standup (weekdays only)
+2. Weekly therapy (every Thursday)
+3. Monthly rent (1st of month)
+4. Yearly birthday
+5. Custom pattern (every 3 days)
+
+**Edge Cases:**
+
+- Skip single occurrence
+- Edit single vs series
+- Delete series
+- Modify middle occurrence
+
+#### Feature 3: Quick Actions
+
+**Keyboard Shortcuts:**
+
+- `N` - New event at current time
+- `T` - New task
+- `Space` - Toggle sidebar
+- `/` - Search
+- `?` - Show shortcuts
+
+#### Feature 4: Performance Optimization
+
+**Targets:**
+
+- Week view load <1.5s
+- Smooth 30fps dragging
+- Instant task creation
+- No lag with 200+ events
+
+**Optimizations:**
+
+- Virtual scrolling for long lists
+- Debounce drag updates
+- Cache weekly data
+- Lazy load month view
+
+#### Feature 5: Data Export
+
+**Export Options:**
+
+- CSV export for events
+- JSON backup
+- Task list as markdown
+- Weekly report PDF
+
+---
+
+### Module Documentation Requirements
+
+Each module needs a `README_MODULE.md` file with:
+
+#### 1. API Module (`apps/api/`)
+
+```markdown
+# API Module
+
+## Purpose
+RESTful API serving calendar events, tasks, and user data.
+Handles all business logic and database operations.
+
+## Key Files
+- server.mjs - Express server setup
+- routes/*.mjs - Endpoint definitions
+- services/*.mjs - Business logic
+- prisma/schema.prisma - Database schema
+
+## Environment Variables
+- DATABASE_URL - PostgreSQL connection
+- PORT - Server port (default 3001)
+- LOG_LEVEL - info|debug|error
+
+## Key Endpoints
+[List all endpoints with parameters]
+
+## Database Operations
+[Common queries and migrations]
+
+## Error Codes
+[All possible error responses]
+
+## Testing
+npm run test:api
+```
+
+#### 2. Bot Module (`apps/bot/`)
+
+```markdown
+# Telegram Bot Module
+
+## Purpose
+Interactive bot for task capture and notifications.
+Provides mobile-friendly interface to core features.
+
+## State Management
+- Session-based conversations
+- Keyboard navigation
+- Command shortcuts
+
+## Message Flows
+[Diagram of conversation trees]
+
+## Integration Points
+- API calls to backend
+- Notification scheduling
+- Session storage
+
+## Deployment
+- Webhook vs polling
+- Environment setup
+- Bot father commands
+```
+
+#### 3. Web Module (`apps/web/`)
+
+```markdown
+# Web UI Module
+
+## Purpose
+Primary interface for calendar and task management.
+Rich interactions with drag-and-drop.
+
+## Component Structure
+- /components/Calendar - Week/Month views
+- /components/Events - Event editor
+- /components/Tasks - Task sidebar
+- /stores - State management
+
+## Key Features
+- Drag to create/move/resize
+- Keyboard shortcuts
+- Touch support
+- Responsive design
+
+## API Integration
+- Event CRUD
+- Real-time updates
+- Optimistic mutations
+```
+
+---
+
+### Testing Protocol for v0.3.x
+
+#### Smoke Tests (After Each Sub-version)
+
+**Manual Testing Checklist:**
+
+1. **Event Creation**
+    
+    - [ ] Drag to create in week view
+    - [ ] Drag to create in month view
+    - [ ] Create all-day event
+    - [ ] Create multi-day event
+    - [ ] Quick create button
+2. **Event Manipulation**
+    
+    - [ ] Move within day
+    - [ ] Move across days
+    - [ ] Resize start time
+    - [ ] Resize end time
+    - [ ] Edit via double-click
+    - [ ] Delete via keyboard
+3. **Task Operations**
+    
+    - [ ] Create task with each priority
+    - [ ] Drag task to calendar
+    - [ ] Mark task complete
+    - [ ] Create subtask
+    - [ ] Delete task
+4. **Telegram Bot**
+    
+    - [ ] /start shows menu
+    - [ ] Create quick note
+    - [ ] Create task
+    - [ ] View today's events
+    - [ ] View tasks by priority
+5. **Data Integrity**
+    
+    - [ ] Events persist after refresh
+    - [ ] Tasks maintain status
+    - [ ] Reflections saved
+    - [ ] Times display correctly (MSK)
+
+#### Performance Benchmarks
+
+**Acceptable Thresholds:**
+
+- Page load: <3 seconds
+- Event creation: <1 second
+- Drag feedback: <100ms
+- API responses: <500ms
+- Bot responses: <2 seconds
+
+#### Regression Tests
+
+**After v0.3.4, verify nothing broke:**
+
+1. All v0.3.1 fixes still work
+2. Bot improvements intact
+3. SSL certificate valid
+4. No new console errors
+5. Mobile still functional
+
+---
+
+### Development Guidelines
+
+#### Code Quality Standards
+
+**For Fixes:**
+
+- Don't just patch, fix properly
+- Add comments explaining the fix
+- Include error handling
+- Log important operations
+
+**For Refactoring:**
+
+- Only if it makes the fix cleaner
+- Don't refactor working code
+- Keep changes focused
+- Document why refactored
+
+#### Git Workflow
+
+**Branch Strategy:**
+
+```
+main
+├── v0.3.x-dev (main development branch)
+│   ├── fix/drag-task-to-calendar
+│   ├── fix/event-resizing
+│   ├── fix/multi-day-events
+│   └── feature/event-colors
+```
+
+**Commit Messages:**
+
+```
+fix(calendar): drag task to calendar validation
+feat(events): manual time input
+refactor(bot): keyboard management
+docs(api): add endpoint documentation
+```
+
+#### Review Checklist
+
+Before merging each fix:
+
+- [ ] Feature works as specified
+- [ ] No console errors
+- [ ] Mobile responsive
+- [ ] Error cases handled
+- [ ] Documentation updated
+- [ ] No performance regression
+
+---
+
+### Time Allocation
+
+#### v0.3.1 (Week 1)
+
+- Day 1-2: Drag task to calendar + Event resizing
+- Day 3-4: Multi-day events + Manual time
+- Day 5-6: Month view + Touch support
+- Day 7: Testing & bug fixes
+
+#### v0.3.2 (Week 2, Days 1-4)
+
+- Day 1: Keyboard management
+- Day 2: Task display & commands
+- Day 3: Event display & reflections
+- Day 4: Error handling & testing
+
+#### v0.3.3 (Week 2, Days 5-7)
+
+- Day 5: SSL setup
+- Day 6: Health monitoring
+- Day 7: Backup system
+
+#### v0.3.4 (Week 3)
+
+- Day 1-2: Colors & categories
+- Day 3: Recurring events testing
+- Day 4: Quick actions
+- Day 5: Performance optimization
+- Day 6-7: Final testing
+
+---
+
+### Known Scope Boundaries
+
+#### Explicitly NOT in v0.3.x
+
+**Features to Resist:**
+
+1. User authentication/login
+2. Multi-user support
+3. Real notifications (just structure)
+4. XP/gamification
+5. External calendar sync
+6. AI features
+7. Mobile app
+8. Task time predictions
+9. Obsidian real export (stays dry-run)
+10. Email integration
+
+**Technical Debt Accepted:**
+
+1. Single user hardcoded
+2. No automated tests (just manual)
+3. Basic error handling only
+4. Simple logging
+5. No caching layer
+6. No websockets
+7. No service workers
+
+#### Migration & Backwards Compatibility
+
+**Data Preservation:**
+
+- All existing events keep IDs
+- Task priorities remain 0-5
+- Timestamps stay UTC
+- No schema breaking changes
+
+**API Compatibility:**
+
+- Endpoints keep same signatures
+- New parameters are optional
+- Error formats unchanged
+- Response structures stable
+
+---
+
+### Success Metrics
+
+#### v0.3.x is COMPLETE when:
+
+**Functional Requirements:** ✅ All drag operations work smoothly ✅ Can create events at any time (10:50, 22:00-06:00) ✅ Month view scrolls continuously ✅ Telegram bot responds correctly to all commands ✅ Touch devices can create events ✅ SSL certificate active and auto-renewing
+
+**Quality Requirements:** ✅ Zero console errors in normal use ✅ Denis uses for 48 hours without rage ✅ All promises resolve/reject properly ✅ Every user action has feedback ✅ Errors show helpful messages
+
+**Documentation Requirements:** ✅ Each module has README_MODULE.md ✅ Main README updated with v0.3.x changes ✅ Keyboard shortcuts documented ✅ API endpoints documented ✅ Deployment steps documented
+
+**Performance Requirements:** ✅ Week view loads in <2 seconds ✅ Event creation in <1 second ✅ Smooth dragging (>20fps) ✅ Bot responds in <3 seconds ✅ No memory leaks after 24 hours
+
+---
+
+### Handoff to Next Phase
+
+#### What v0.4.x Can Assume
+
+After v0.3.x completion:
+
+1. All UI interactions work reliably
+2. Telegram bot has solid foundation
+3. SSL and monitoring active
+4. Documentation exists for all modules
+5. Color system implemented
+6. Touch support working
+7. Recurring events tested
+
+#### Technical Debt for v0.4.x
+
+To be addressed later:
+
+1. No test coverage
+2. Single user assumption
+3. Basic error handling
+4. No caching
+5. No real-time updates
+6. Simple state management
+7. No offline support
+
+#### Data Collected for v0.4.x
+
+During v0.3.x usage, track:
+
+- Common event durations
+- Peak usage times
+- Most used features
+- Error frequency
+- Performance bottlenecks
+- Task completion patterns
+- Reflection compliance
+
+This data will inform v0.4.x priorities and help design the notification system.
+
+---
+
+### Emergency Procedures
+
+#### If Something Breaks Production
+
+1. **Immediate:** Revert to last working commit
+2. **Notify:** Message in Telegram about issue
+3. **Debug:** Check logs for errors
+4. **Fix:** Create hotfix branch
+5. **Test:** Verify fix locally
+6. **Deploy:** Push fix to production
+7. **Monitor:** Watch for 24 hours
+
+#### Rollback Procedure
+
+```bash
+# Find last working commit
+git log --oneline
+
+# Revert to it
+git revert HEAD
+git push
+
+# Or hard reset if needed
+git reset --hard <commit-hash>
+git push --force
+```
+
+#### Common Issues & Solutions
+
+**Database locked:**
+
+- Restart PostgreSQL
+- Check connection pool
+
+**Bot not responding:**
+
+- Check webhook URL
+- Verify token valid
+- Restart bot service
+
+**SSL expired:**
+
+- Run certbot renew
+- Restart nginx
+
+**Out of memory:**
+
+- Check for memory leaks
+- Restart services
+- Increase swap
+
+---
+
+### Final Notes
+
+Version 0.3.x is about **reliability over features**. Every decision should prioritize "does it work every time" over "could we add this cool thing." This is the foundation that all future versions build upon. A broken foundation means everything above it eventually crumbles.
+
+The hardest part will be resisting scope creep. When fixing the event editor, it's tempting to add "just one more field." Don't. Fix what's broken, document what's fixed, and move on. There's plenty of time for enhancements in v0.4.x and beyond.
+
+Remember: The goal is 48 hours of rage-free usage. Not perfect, not beautiful, not feature-complete. Just reliable.
+
 ## 6) NeuroBoost v0.4.x Task Management Revolution 
 
 **Version Range:** v0.4.1 → v0.4.3  
