@@ -196,7 +196,7 @@ export function WeekGrid({
 
   const { allDayEvents, timedEvents } = useMemo(() => {
     const allDay: Array<NbEvent & { span: { startDay: number; endDay: number; spanDays: number } }> = [];
-    const timed: Array<NbEvent & { top: number; height: number; dayUtc0: number; span?: { startDay: number; endDay: number; spanDays: number } }> = [];
+    const timed: Array<NbEvent & { top: number; height: number; dayUtc0: number; span?: { startDay: number; endDay: number; spanDays: number; isFirstSegment?: boolean; isLastSegment?: boolean } }> = [];
     
     for (const e of events) {
       if (e.allDay) {
@@ -204,9 +204,48 @@ export function WeekGrid({
         allDay.push({ ...e, span });
       } else {
         const span = getDaySpan(e);
+        
+        // For multi-day timed events, create timed event segments for each day
         if (span.spanDays > 1) {
-          // Multi-day timed event - treat as all-day for display
-          allDay.push({ ...e, allDay: true, span });
+          // Create segments for each day the event spans
+          for (let dayOffset = 0; dayOffset < span.spanDays; dayOffset++) {
+            const currentDayIndex = span.startDay + dayOffset;
+            
+            // Fix: Use absolute day calculation from monday base
+            const segmentDayUtc0 = mondayUtc0 + currentDayIndex * DAY_MS;
+            
+            let dayStartMin: number;
+            let dayEndMin: number;
+            
+            if (dayOffset === 0) {
+              // First day: start at actual start time, end at midnight
+              dayStartMin = minutesSinceMskMidnight(e.startUtc);
+              dayEndMin = 1440; // End of day
+            } else if (dayOffset === span.spanDays - 1) {
+              // Last day: start at midnight, end at actual end time
+              dayStartMin = 0; // Start of day
+              dayEndMin = minutesSinceMskMidnight(e.endUtc);
+            } else {
+              // Middle days: full day
+              dayStartMin = 0;
+              dayEndMin = 1440;
+            }
+            
+            const top = minsToTop(dayStartMin);
+            const height = Math.max(minsToTop(dayEndMin - dayStartMin), minsToTop(MIN_SLOT_MIN));
+            
+            timed.push({ 
+              ...e, 
+              top, 
+              height, 
+              dayUtc0: segmentDayUtc0,
+              span: { 
+                ...span, 
+                isFirstSegment: dayOffset === 0, 
+                isLastSegment: dayOffset === span.spanDays - 1 
+              }
+            });
+          }
         } else {
           // Single day timed event
           const startMin = minutesSinceMskMidnight(e.startUtc);
@@ -220,10 +259,10 @@ export function WeekGrid({
     }
     
     return { allDayEvents: allDay, timedEvents: timed };
-  }, [events]);
+  }, [events, mondayUtc0]);
 
   const timedPerDay = useMemo(() => {
-    const map = new Map<number, Array<NbEvent & { top: number; height: number; dayUtc0: number }>>();
+    const map = new Map<number, Array<NbEvent & { top: number; height: number; dayUtc0: number; span?: { startDay: number; endDay: number; spanDays: number; isFirstSegment?: boolean; isLastSegment?: boolean } }>>();
     for (const d of days) map.set(d.dayUtc0, []);
     for (const e of timedEvents) {
       if (map.has(e.dayUtc0)) {
@@ -283,16 +322,62 @@ export function WeekGrid({
       return;
     }
 
-    if (!selectedId) return;
+    if (!selectedId) {
+      // If no event selected, try to select first event with Tab
+      if (ev.key === 'Tab' && events.length > 0) {
+        ev.preventDefault();
+        setSelectedId(events[0].id);
+        return;
+      }
+      return;
+    }
+
     const evt = events.find(x => x.id === selectedId);
     if (!evt) return;
 
-    if (ev.key === 'Enter') { ev.preventDefault(); onSelect(evt); return; }
+    // Navigation and actions for selected events
+    if (ev.key === 'Enter' || ev.key === ' ') { 
+      ev.preventDefault(); 
+      onSelect(evt); 
+      return; 
+    }
+    
     if (ev.key === 'Delete' || ev.key === 'Backspace') {
       ev.preventDefault();
-      if (confirm(`Delete "${evt.title}"?`)) onDelete(selectedId);
+      if (confirm(`Delete "${evt.title}"?`)) {
+        const currentIndex = events.findIndex(e => e.id === selectedId);
+        // Select next event after deletion
+        if (currentIndex < events.length - 1) {
+          setSelectedId(events[currentIndex + 1].id);
+        } else if (currentIndex > 0) {
+          setSelectedId(events[currentIndex - 1].id);
+        } else {
+          setSelectedId(null);
+        }
+        onDelete(selectedId);
+      }
       return;
     }
+    
+    // Navigate between events with Tab/Shift+Tab
+    if (ev.key === 'Tab') {
+      ev.preventDefault();
+      const currentIndex = events.findIndex(e => e.id === selectedId);
+      let nextIndex;
+      
+      if (ev.shiftKey) {
+        // Previous event
+        nextIndex = currentIndex > 0 ? currentIndex - 1 : events.length - 1;
+      } else {
+        // Next event
+        nextIndex = currentIndex < events.length - 1 ? currentIndex + 1 : 0;
+      }
+      
+      setSelectedId(events[nextIndex].id);
+      return;
+    }
+    
+    // Week navigation
     if (ev.key === 'ArrowLeft' && onWeekChange) {
       ev.preventDefault();
       onWeekChange(currentWeekOffset - 1);
@@ -304,6 +389,7 @@ export function WeekGrid({
       return;
     }
     
+    // Time nudging
     const plus = ev.key === '+' || ev.key === '=';
     const minus = ev.key === '-' || ev.key === '_';
     if (!plus && !minus) return;
@@ -424,25 +510,27 @@ export function WeekGrid({
           const daySpan = Math.floor((endDayUtc0 - startDayUtc0) / DAY_MS) + 1;
           
           if (drag.isMultiDayTimed) {
-            // compute absolute UTC timestamps for start and end
+            // Multi-day timed event - always create as timed, never all-day
             const startStamp = new Date(drag.startDayUtc0 + drag.startMin * 60_000);
             const endStamp   = new Date(drag.endDayUtc0 + drag.curMin   * 60_000);
             let actualStart = startStamp;
             let actualEnd   = endStamp;
-            // swap if reversed
+            
+            // Swap if reversed
             if (actualEnd < actualStart) {
                 const tmp = actualStart;
                 actualStart = actualEnd;
                 actualEnd = tmp;
             }
+            
             onCreate({
                 startUtc: actualStart.toISOString(),
                 endUtc: actualEnd.toISOString(),
-                allDay: false,
+                allDay: false, // Force timed even if 24+ hours
                 daySpan,
             });
-        } else if (drag.allDay || drag.crossDay) {
-            // All-day event
+          } else if (drag.allDay || (drag.crossDay && drag.allDay)) {
+            // Only create all-day if explicitly in all-day section
             onCreate({
               startUtc: new Date(startDayUtc0).toISOString(),
               endUtc: new Date(endDayUtc0 + DAY_MS - 1).toISOString(),
@@ -496,15 +584,30 @@ export function WeekGrid({
               });
             }
           } else {
-            // Move timed event
-            const startMin = snapMin(drag.offsetMin);
-            const endMin = startMin + drag.durMin;
-            
-            onMoveOrResize({
-              id: drag.id,
-              startUtc: new Date(targetDay + startMin * 60000).toISOString(),
-              endUtc: new Date(targetDay + endMin * 60000).toISOString()
-            });
+            // For multi-day events, preserve their duration when moving
+            if (drag.daySpan > 1) {
+              const dayDiff = Math.floor((targetDay - drag.dayUtc0) / DAY_MS);
+              const originalEvent = events.find(e => e.id === drag.id);
+              if (originalEvent) {
+                const newStart = new Date(new Date(originalEvent.startUtc).getTime() + dayDiff * DAY_MS);
+                const newEnd = new Date(new Date(originalEvent.endUtc).getTime() + dayDiff * DAY_MS);
+                onMoveOrResize({
+                  id: drag.id,
+                  startUtc: newStart.toISOString(),
+                  endUtc: newEnd.toISOString()
+                });
+              }
+            } else {
+              // Single day timed event
+              const startMin = snapMin(drag.offsetMin);
+              const endMin = startMin + drag.durMin;
+              
+              onMoveOrResize({
+                id: drag.id,
+                startUtc: new Date(targetDay + startMin * 60000).toISOString(),
+                endUtc: new Date(targetDay + endMin * 60000).toISOString()
+              });
+            }
           }
           break;
         }
@@ -641,8 +744,10 @@ export function WeekGrid({
               const targetDay = days[Math.max(0, Math.min(days.length - 1, dayIndex))];
               
               if (targetDay) {
-                const yInDay = e.clientY - rect.top - ALL_DAY_HEIGHT;
-                const dropMin = Math.max(0, clampMins(snapMin(topToMins(yInDay + (scrollContainerRef.current?.scrollTop || 0)))));
+                // Fix: Account for all-day height and day header height
+                const yInTimeGrid = e.clientY - rect.top - ALL_DAY_HEIGHT - DAY_HEADER_HEIGHT;
+                const scrollOffset = scrollContainerRef.current?.scrollTop || 0;
+                const dropMin = Math.max(0, clampMins(snapMin(topToMins(yInTimeGrid + scrollOffset))));
                 const dropTime = new Date(targetDay.dayUtc0 + dropMin * 60000);
                 onTaskDrop(dragData.task, dropTime);
               }
@@ -958,17 +1063,39 @@ export function WeekGrid({
                     const height = Math.max(minsToTop(endMin - startMin), minsToTop(MIN_SLOT_MIN));
                     const selected = selectedId && e.id === selectedId;
                     
+                    // Check if this is a multi-day segment
+                    const isMultiDaySegment = e.span && e.span.spanDays > 1;
+                    const isFirstSegment = e.span?.isFirstSegment;
+                    const isLastSegment = e.span?.isLastSegment;
+                    
                     return (
                       <div
-                        key={e.id}
-                        className={`absolute rounded border text-xs cursor-move font-mono
+                        key={`${e.id}-${e.dayUtc0}`}
+                        className={`absolute rounded border cursor-move font-mono
                           ${selected
                             ? 'border-blue-400 ring-1 ring-blue-400 bg-blue-600/90 text-white z-15'
                             : 'border-zinc-600 bg-zinc-800/95 hover:bg-zinc-700/95 text-zinc-100 z-10'
-                          }`}
-                        style={{ top, height, left: 2, right: 2 }}
+                          }
+                          ${isMultiDaySegment ? 'border-l-4 border-l-purple-400' : ''}`}
+                        style={{ 
+                          top: e.top, 
+                          height: e.height, 
+                          left: 2, 
+                          right: 2,
+                          borderRadius: isMultiDaySegment ? 
+                            (isFirstSegment ? '4px 4px 0 0' : isLastSegment ? '0 0 4px 4px' : '0') : 
+                            '4px'
+                        }}
+                        onClick={(ev) => {
+                          // Restore single-click selection
+                          ev.stopPropagation();
+                          if (e.id) setSelectedId(e.id);
+                        }}
                         onMouseDown={(ev) => {
                           if (!e.id) return;
+
+                          // Set selected on mousedown too
+                          setSelectedId(e.id);
 
                           const track = ev.currentTarget.parentElement;
                           const rect = track!.getBoundingClientRect();
@@ -977,35 +1104,40 @@ export function WeekGrid({
                           const isTopHandle = yInEvent < 8;  
                           const isBottomHandle = yInEvent > eventRect.height - 8;
 
-                          // Add preventDefault for resize handles
-                          if (isTopHandle || isBottomHandle) {
+                          // Only disable resize for multi-day events, allow moving
+                          if ((isTopHandle || isBottomHandle) && !isMultiDaySegment) {
                             ev.preventDefault();
                             ev.stopPropagation();
-                          }
-                          
-                          dragMetaRef.current = {
-                            colTop: rect.top,
-                            scrollStart: scrollContainerRef.current?.scrollTop ?? 0
-                          };
+                            
+                            dragMetaRef.current = {
+                              colTop: rect.top,
+                              scrollStart: scrollContainerRef.current?.scrollTop ?? 0
+                            };
 
-                          if (isTopHandle) {  // ADD THIS BLOCK
-                            setDrag({ 
-                              kind: 'resize-start', 
-                              dayUtc0, 
-                              id: e.id, 
-                              otherEndMin: endMin, 
-                              curMin: startMin 
-                            });
-                          } else if (isBottomHandle) {  // ADD THIS BLOCK
-                            setDrag({ 
-                              kind: 'resize-end', 
-                              dayUtc0, 
-                              id: e.id, 
-                              otherEndMin: startMin, 
-                              curMin: endMin 
-                            });
-                          } else {
-                            // existing move logic
+                            if (isTopHandle) {  
+                              setDrag({ 
+                                kind: 'resize-start', 
+                                dayUtc0, 
+                                id: e.id, 
+                                otherEndMin: endMin, 
+                                curMin: startMin 
+                              });
+                            } else if (isBottomHandle) {  
+                              setDrag({ 
+                                kind: 'resize-end', 
+                                dayUtc0, 
+                                id: e.id, 
+                                otherEndMin: startMin, 
+                                curMin: endMin 
+                              });
+                            }
+                          } else if (!isTopHandle && !isBottomHandle) {
+                            // Move logic - allow moving multi-day events
+                            dragMetaRef.current = {
+                              colTop: rect.top,
+                              scrollStart: scrollContainerRef.current?.scrollTop ?? 0
+                            };
+                            
                             setDrag({ 
                               kind: 'move', 
                               dayUtc0, 
@@ -1013,7 +1145,7 @@ export function WeekGrid({
                               id: e.id, 
                               offsetMin: startMin, 
                               durMin: endMin - startMin,
-                              daySpan: 1,
+                              daySpan: isMultiDaySegment ? (e.span?.spanDays || 1) : 1,
                               originalStart: startMin,
                               originalEnd: endMin,
                               allDay: false
@@ -1022,18 +1154,44 @@ export function WeekGrid({
                           ev.stopPropagation();
                         }}
                         onDoubleClick={() => onSelect(e)}
-                        title={`${e.title} • ${isMobile ? 'Tap to edit' : 'Ctrl+Drag to move across days'}`}
+                        title={`${e.title}${isMultiDaySegment ? ' (continues across days)' : ''} • ${isMobile ? 'Tap to edit' : 'Click to select, double-click to edit'}`}
                       >
-                        <div className="absolute left-0 right-0 h-2 top-0 cursor-ns-resize bg-transparent hover:bg-blue-400/20" />
-                        <div className="absolute left-0 right-0 h-2 bottom-0 cursor-ns-resize bg-transparent hover:bg-blue-400/20" />
-  
-                        <div className="px-1 py-0.5 min-h-0 leading-tight">
-                          <div className="font-semibold truncate text-[11px]">
-                            {e.title || '(untitled)'}
+                        {/* Only show resize handles for single-day events */}
+                        {!isMultiDaySegment && (
+                          <>
+                            <div className="absolute left-0 right-0 h-2 top-0 cursor-ns-resize bg-transparent hover:bg-blue-400/20" />
+                            <div className="absolute left-0 right-0 h-2 bottom-0 cursor-ns-resize bg-transparent hover:bg-blue-400/20" />
+                          </>
+                        )}
+
+                        <div className="px-2 py-1 min-h-0 leading-tight overflow-hidden">
+                          <div className="font-semibold text-sm flex items-center gap-1 mb-0.5">
+                            {/* Only show arrows on multi-day segments with proper spacing */}
+                            {isMultiDaySegment && !isFirstSegment && <span className="text-purple-300 flex-shrink-0">←</span>}
+                            <span className="truncate min-w-0 break-words">{e.title || '(untitled)'}</span>
+                            {isMultiDaySegment && !isLastSegment && <span className="text-purple-300 flex-shrink-0">→</span>}
                           </div>
-                          {height > 25 && (
-                            <div className="text-zinc-300 text-[10px]">
+                          
+                          {/* Show time info if there's space and it's useful */}
+                          {e.height > 35 && !isMultiDaySegment && (
+                            <div className="text-zinc-300 text-xs leading-tight">
                               {fmtTime(e.startUtc)}–{fmtTime(e.endUtc)}
+                            </div>
+                          )}
+                          {e.height > 35 && isMultiDaySegment && (
+                            <div className="text-purple-200 text-xs leading-tight">
+                              {isFirstSegment && `${fmtTime(e.startUtc)} →`}
+                              {!isFirstSegment && !isLastSegment && '← →'}
+                              {isLastSegment && `← ${fmtTime(e.endUtc)}`}
+                            </div>
+                          )}
+                          
+                          {/* Show description if there's even more space - with proper overflow handling */}
+                          {e.height > 55 && e.description && (
+                            <div className="text-zinc-400 text-xs leading-tight mt-1 overflow-hidden">
+                              <div className="break-words">
+                                {e.description.length > 40 ? e.description.slice(0, 40) + '...' : e.description}
+                              </div>
                             </div>
                           )}
                         </div>
