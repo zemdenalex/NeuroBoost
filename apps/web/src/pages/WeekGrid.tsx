@@ -35,12 +35,16 @@ function minutesSinceMskMidnight(utcISO: string): number {
   return Math.max(0, Math.min(1440, Math.round((utcMs - baseUtc) / 60000)));
 }
 
-function getDaySpan(event: NbEvent): { startDay: number; endDay: number; spanDays: number } {
+function getDaySpan(event: NbEvent, mondayUtc0: number): { startDay: number; endDay: number; spanDays: number } {
   const startDate = new Date(event.startUtc);
   const endDate = new Date(event.endUtc);
-  const mondayUtc0 = mondayUtcMidnightOfCurrentWeek();
-  const startDay = Math.floor((mskMidnightUtcMs(startDate.getTime()) - mondayUtc0) / DAY_MS);
-  const endDay = Math.floor((mskMidnightUtcMs(endDate.getTime()) - mondayUtc0) / DAY_MS);
+  
+  // Use absolute day calculation from the week's Monday
+  const startDayUtc0 = mskMidnightUtcMs(startDate.getTime());
+  const endDayUtc0 = mskMidnightUtcMs(endDate.getTime());
+  
+  const startDay = Math.floor((startDayUtc0 - mondayUtc0) / DAY_MS);
+  const endDay = Math.floor((endDayUtc0 - mondayUtc0) / DAY_MS);
   
   return {
     startDay: Math.max(0, Math.min(6, startDay)),
@@ -200,10 +204,10 @@ export function WeekGrid({
     
     for (const e of events) {
       if (e.allDay) {
-        const span = getDaySpan(e);
+        const span = getDaySpan(e, mondayUtc0);
         allDay.push({ ...e, span });
       } else {
-        const span = getDaySpan(e);
+        const span = getDaySpan(e, mondayUtc0);
         
         // For multi-day timed events, create timed event segments for each day
         if (span.spanDays > 1) {
@@ -211,7 +215,7 @@ export function WeekGrid({
           for (let dayOffset = 0; dayOffset < span.spanDays; dayOffset++) {
             const currentDayIndex = span.startDay + dayOffset;
             
-            // Fix: Use absolute day calculation from monday base
+            // Fixed: Use correct absolute day calculation 
             const segmentDayUtc0 = mondayUtc0 + currentDayIndex * DAY_MS;
             
             let dayStartMin: number;
@@ -510,7 +514,7 @@ export function WeekGrid({
           const daySpan = Math.floor((endDayUtc0 - startDayUtc0) / DAY_MS) + 1;
           
           if (drag.isMultiDayTimed) {
-            // Multi-day timed event - always create as timed, never all-day
+            // Multi-day timed event - FORCE timed, never all-day
             const startStamp = new Date(drag.startDayUtc0 + drag.startMin * 60_000);
             const endStamp   = new Date(drag.endDayUtc0 + drag.curMin   * 60_000);
             let actualStart = startStamp;
@@ -526,10 +530,10 @@ export function WeekGrid({
             onCreate({
                 startUtc: actualStart.toISOString(),
                 endUtc: actualEnd.toISOString(),
-                allDay: false, // Force timed even if 24+ hours
+                allDay: false, // NEVER all-day for timed drags
                 daySpan,
             });
-          } else if (drag.allDay || (drag.crossDay && drag.allDay)) {
+          } else if (drag.allDay) {
             // Only create all-day if explicitly in all-day section
             onCreate({
               startUtc: new Date(startDayUtc0).toISOString(),
@@ -538,14 +542,14 @@ export function WeekGrid({
               daySpan
             });
           } else {
-            // Single day timed event
+            // Single day timed event - FORCE timed
             const a = Math.min(drag.startMin, drag.curMin);
             const b = Math.max(drag.startMin, drag.curMin);
             if (b > a) {
               onCreate({
                 startUtc: new Date(startDayUtc0 + a * 60000).toISOString(),
                 endUtc: new Date(startDayUtc0 + b * 60000).toISOString(),
-                allDay: false,
+                allDay: false, // NEVER all-day for timed drags
                 daySpan: 1
               });
             }
@@ -584,19 +588,18 @@ export function WeekGrid({
               });
             }
           } else {
-            // For multi-day events, preserve their duration when moving
-            if (drag.daySpan > 1) {
+            // Fixed multi-day event movement - preserve duration
+            const originalEvent = events.find(e => e.id === drag.id);
+            if (originalEvent && drag.daySpan > 1) {
+              // Multi-day event - calculate day offset and preserve duration
               const dayDiff = Math.floor((targetDay - drag.dayUtc0) / DAY_MS);
-              const originalEvent = events.find(e => e.id === drag.id);
-              if (originalEvent) {
-                const newStart = new Date(new Date(originalEvent.startUtc).getTime() + dayDiff * DAY_MS);
-                const newEnd = new Date(new Date(originalEvent.endUtc).getTime() + dayDiff * DAY_MS);
-                onMoveOrResize({
-                  id: drag.id,
-                  startUtc: newStart.toISOString(),
-                  endUtc: newEnd.toISOString()
-                });
-              }
+              const newStart = new Date(new Date(originalEvent.startUtc).getTime() + dayDiff * DAY_MS);
+              const newEnd = new Date(new Date(originalEvent.endUtc).getTime() + dayDiff * DAY_MS);
+              onMoveOrResize({
+                id: drag.id,
+                startUtc: newStart.toISOString(),
+                endUtc: newEnd.toISOString()
+              });
             } else {
               // Single day timed event
               const startMin = snapMin(drag.offsetMin);
@@ -807,7 +810,7 @@ export function WeekGrid({
                         <div
                           key={`allday-event-${e.id}-${i}`}
                           className={`absolute top-5 bottom-2 font-mono text-xs px-2 flex items-center cursor-pointer
-                            ${selected ? 'ring-1 ring-blue-400 bg-blue-600/90 z-35' : 'bg-zinc-600/90 hover:bg-zinc-500/90 z-25'}
+                            ${selected ? 'ring-1 ring-blue-400 bg-blue-600/90 z-40' : 'bg-zinc-600/90 hover:bg-zinc-500/90 z-25'}
                             border border-zinc-500`}
                           style={{
                             left: isStartDay ? 4 : 0,
@@ -840,7 +843,7 @@ export function WeekGrid({
                           title={`${e.title} • All-day event`}
                         >
                           {isStartDay && (
-                            <span className="truncate text-white font-medium">
+                            <span className="break-words text-white font-medium">
                               {e.title || '(untitled)'}
                             </span>
                           )}
@@ -1045,7 +1048,7 @@ export function WeekGrid({
                   {/* Current time line */}
                   {dayUtc0 === nowInfo.dayUtc0 && nowInfo.min >= 0 && nowInfo.min <= 1440 && (
                     <div 
-                      className="absolute left-0 right-0 h-[2px] bg-red-500 z-20" 
+                      className="absolute left-0 right-0 h-[2px] bg-red-500 z-30" 
                       style={{ top: minsToTop(nowInfo.min) }}
                     >
                       <div className="absolute -left-1 -top-[3px] w-2 h-2 rounded-full bg-red-500" />
@@ -1055,7 +1058,7 @@ export function WeekGrid({
                     </div>
                   )}
 
-                  {/* Timed events */}
+                  {/* Timed events with FIXED z-index management */}
                   {timedList.map(e => {
                     const startMin = minutesSinceMskMidnight(e.startUtc);
                     const endMin = Math.max(startMin + MIN_SLOT_MIN, minutesSinceMskMidnight(e.endUtc));
@@ -1068,15 +1071,25 @@ export function WeekGrid({
                     const isFirstSegment = e.span?.isFirstSegment;
                     const isLastSegment = e.span?.isLastSegment;
                     
+                    // FIXED Z-INDEX LOGIC: Selected always on top, then unselected by size
+                    let zIndexClass: string;
+                    if (selected) {
+                      zIndexClass = 'z-30'; // Selected events always on top
+                    } else {
+                      // Unselected events: smaller events on top of larger ones
+                      zIndexClass = height < 60 ? 'z-20' : 'z-10';
+                    }
+                    
                     return (
                       <div
                         key={`${e.id}-${e.dayUtc0}`}
                         className={`absolute rounded border cursor-move font-mono
                           ${selected
-                            ? 'border-blue-400 ring-1 ring-blue-400 bg-blue-600/90 text-white z-15'
-                            : 'border-zinc-600 bg-zinc-800/95 hover:bg-zinc-700/95 text-zinc-100 z-10'
+                            ? 'border-blue-400 ring-1 ring-blue-400 bg-blue-600/90 text-white'
+                            : 'border-zinc-600 bg-zinc-800/95 hover:bg-zinc-700/95 text-zinc-100'
                           }
-                          ${isMultiDaySegment ? 'border-l-4 border-l-purple-400' : ''}`}
+                          ${isMultiDaySegment ? 'border-l-4 border-l-purple-400' : ''}
+                          ${zIndexClass}`}
                         style={{ 
                           top: e.top, 
                           height: e.height, 
@@ -1132,7 +1145,7 @@ export function WeekGrid({
                               });
                             }
                           } else if (!isTopHandle && !isBottomHandle) {
-                            // Move logic - allow moving multi-day events
+                            // Fixed move logic - allow moving multi-day events
                             dragMetaRef.current = {
                               colTop: rect.top,
                               scrollStart: scrollContainerRef.current?.scrollTop ?? 0
@@ -1168,7 +1181,7 @@ export function WeekGrid({
                           <div className="font-semibold text-sm flex items-center gap-1 mb-0.5">
                             {/* Only show arrows on multi-day segments with proper spacing */}
                             {isMultiDaySegment && !isFirstSegment && <span className="text-purple-300 flex-shrink-0">←</span>}
-                            <span className="truncate min-w-0 break-words">{e.title || '(untitled)'}</span>
+                            <span className="min-w-0 break-words">{e.title || '(untitled)'}</span>
                             {isMultiDaySegment && !isLastSegment && <span className="text-purple-300 flex-shrink-0">→</span>}
                           </div>
                           
@@ -1218,7 +1231,7 @@ export function WeekGrid({
                     return (
                       <div 
                         className="absolute bg-emerald-400/40 border border-emerald-400/60 rounded pointer-events-none transition-all duration-150"
-                        style={{ top: clippedTop, height: clippedHeight, left: 2, right: 2, zIndex: 15 }} 
+                        style={{ top: clippedTop, height: clippedHeight, left: 2, right: 2, zIndex: 45 }} 
                       >
                         {/* Smart label positioning based on ghost size */}
                         {clippedHeight > 40 ? (
@@ -1290,7 +1303,7 @@ export function WeekGrid({
                           borderRadius: isStartDay && isEndDay ? '4px' :
                                         isStartDay ? '4px 4px 0 0' :
                                         isEndDay ? '0 0 4px 4px' : '0',
-                          zIndex: 15
+                          zIndex: 45
                         }} 
                       >
                         {/* Smart label positioning for multi-day */}
@@ -1343,7 +1356,7 @@ export function WeekGrid({
                           height: clippedHeight, 
                           left: 2, 
                           right: 2,
-                          zIndex: 15
+                          zIndex: 45
                         }} 
                       >
                         {clippedHeight > 40 ? (
@@ -1389,7 +1402,7 @@ export function WeekGrid({
                     return (
                       <div 
                         className="absolute bg-amber-400/40 border border-amber-400/60 rounded pointer-events-none transition-all duration-150"
-                        style={{ top: clippedTop, height: clippedHeight, left: 2, right: 2, zIndex: 15 }} 
+                        style={{ top: clippedTop, height: clippedHeight, left: 2, right: 2, zIndex: 45 }} 
                       >
                         {clippedHeight > 40 ? (
                           <>

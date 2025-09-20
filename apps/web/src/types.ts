@@ -78,8 +78,8 @@ export type CreateEventBody = {
   location?: string;
   color?: string;
   tags?: string[];
-  taskId?: string;  // ADD THIS LINE
-  sourceTaskId?: string;  // ADD THIS LINE
+  taskId?: string;
+  sourceTaskId?: string;
   reminders?: Array<{
     minutesBefore: number;
     channel?: 'TELEGRAM' | 'WEB' | 'DESKTOP' | 'EMAIL';
@@ -128,8 +128,7 @@ export type WeekStats = {
   reflectionCount: number;
 };
 
-// apps/web/src/types.ts - Add to existing file
-
+// Deadline tasks type
 export type DeadlineTask = Task & {
   deadline: string; // ISO date string
   warningMinutesBefore?: number; // When to show warning
