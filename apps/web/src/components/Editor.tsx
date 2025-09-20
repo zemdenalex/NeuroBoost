@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createEventUTC, patchEventUTC, saveReflection } from '../api';
 import type { NbEvent, CreateEventBody, ReflectionBody } from '../types';
 
@@ -76,7 +76,13 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
   const [endTimeInput, setEndTimeInput] = useState('');
   const [startDateLocal, setStartDateLocal] = useState('');
   const [endDateLocal, setEndDateLocal] = useState('');
-  const [timeValidation, setTimeValidation] = useState({ start: true, end: true, startParsed: '', endParsed: '' });
+  const [timeValidation, setTimeValidation] = useState({ start: true, end: true, startParsed: '', endParsed: '', dateRangeValid: true, dateRangeError: '' });
+
+  // Refs for form navigation
+  const titleRef = useRef<HTMLInputElement>(null);
+  const startTimeRef = useRef<HTMLInputElement>(null);
+  const endTimeRef = useRef<HTMLInputElement>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
   const isEditing = !!draft;
   const hasReflection = draft?.reflections && draft.reflections.length > 0;
@@ -112,8 +118,39 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
     }
   }, [draft, range, hasReflection]);
 
+  // Validate date ranges whenever dates or times change
+  useEffect(() => {
+    if (!startDateLocal || !endDateLocal || isAllDay) {
+      setTimeValidation(prev => ({ ...prev, dateRangeValid: true, dateRangeError: '' }));
+      return;
+    }
+
+    if (timeValidation.start && timeValidation.end && timeValidation.startParsed && timeValidation.endParsed) {
+      const startDateTime = createMskDateTimeAsUtc(startDateLocal, timeValidation.startParsed);
+      let endDateTime = createMskDateTimeAsUtc(endDateLocal, timeValidation.endParsed);
+      
+      // Handle cross-midnight events on same date
+      if (startDateLocal === endDateLocal && timeValidation.endParsed < timeValidation.startParsed) {
+        const nextDay = new Date(endDateLocal + 'T00:00:00');
+        nextDay.setDate(nextDay.getDate() + 1);
+        endDateTime = createMskDateTimeAsUtc(nextDay.toISOString().slice(0, 10), timeValidation.endParsed);
+      }
+      
+      if (endDateTime <= startDateTime) {
+        setTimeValidation(prev => ({ 
+          ...prev, 
+          dateRangeValid: false, 
+          dateRangeError: 'End time must be after start time' 
+        }));
+      } else {
+        setTimeValidation(prev => ({ ...prev, dateRangeValid: true, dateRangeError: '' }));
+      }
+    }
+  }, [startDateLocal, endDateLocal, timeValidation.startParsed, timeValidation.endParsed, isAllDay]);
+
   const handleSave = async () => {
     if (!title.trim()) return;
+    if (!timeValidation.dateRangeValid) return;
 
     try {
       const tagsArray = tags.split(',').map(t => t.trim()).filter(Boolean);
@@ -132,7 +169,7 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
         };
 
         // Update times if they've changed and are valid
-        if (!isAllDay && timeValidation.start && timeValidation.end) {
+        if (!isAllDay && timeValidation.start && timeValidation.end && timeValidation.dateRangeValid) {
           const newStart = createMskDateTimeAsUtc(startDateLocal, timeValidation.startParsed);
           let newEnd = createMskDateTimeAsUtc(endDateLocal, timeValidation.endParsed);
           
@@ -147,16 +184,8 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
             setEndDateLocal(nextDay.toISOString().slice(0, 10));
           }
           
-          // Validate that end is after start
-          if (newEnd <= newStart) {
-            alert('End time must be after start time');
-            return;
-          }
-          
-          if (newEnd > newStart) {
-            updates.startsAt = newStart.toISOString();
-            updates.endsAt = newEnd.toISOString();
-          }
+          updates.startsAt = newStart.toISOString();
+          updates.endsAt = newEnd.toISOString();
         }
 
         await patchEventUTC(draft.id, updates);
@@ -180,7 +209,7 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
         let eventEnd = range.end;
         
         // For new events with custom times, use the parsed times
-        if (!isAllDay && timeValidation.start && timeValidation.end) {
+        if (!isAllDay && timeValidation.start && timeValidation.end && timeValidation.dateRangeValid) {
           eventStart = createMskDateTimeAsUtc(startDateLocal, timeValidation.startParsed);
           eventEnd = createMskDateTimeAsUtc(endDateLocal, timeValidation.endParsed);
           
@@ -229,37 +258,46 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
     }
   };
 
-  // Replace the handleKeyDown function:
-  const handleKeyDown = (e: React.KeyboardEvent, fieldType?: 'title' | 'time' | 'description') => {
+  // Fixed keyboard navigation
+  const handleKeyDown = (e: React.KeyboardEvent, fieldType: 'title' | 'startTime' | 'endTime' | 'description') => {
     if (e.key === 'Escape') {
       onClose();
       return;
     }
     
     if (e.key === 'Enter') {
-      if (fieldType === 'title' || !fieldType) {
+      if (fieldType === 'title') {
         // Save on Enter in title field
         e.preventDefault();
         handleSave();
-      } else if (fieldType === 'time') {
-        // Tab to next field on Enter in time field
+      } else if (fieldType === 'startTime') {
+        // Tab to end time field on Enter in start time field
         e.preventDefault();
-        const target = e.target as HTMLInputElement;
-        const form = target.form;
-        if (form) {
-          const inputs = Array.from(form.querySelectorAll('input'));
-          const currentIndex = inputs.indexOf(target);
-          const nextInput = inputs[currentIndex + 1];
-          if (nextInput) {
-            nextInput.focus();
-          }
-        }
+        endTimeRef.current?.focus();
+      } else if (fieldType === 'endTime') {
+        // Tab to description on Enter in end time field
+        e.preventDefault();
+        descriptionRef.current?.focus();
       } else if (fieldType === 'description' && e.ctrlKey) {
         // Ctrl+Enter saves in description
         e.preventDefault();
         handleSave();
       }
-      // Regular Enter in description field just adds new line (default behavior)
+    }
+    
+    // Tab navigation
+    if (e.key === 'Tab') {
+      if (fieldType === 'title' && !e.shiftKey) {
+        e.preventDefault();
+        startTimeRef.current?.focus();
+      } else if (fieldType === 'startTime' && !e.shiftKey) {
+        e.preventDefault();
+        endTimeRef.current?.focus();
+      } else if (fieldType === 'endTime' && !e.shiftKey) {
+        e.preventDefault();
+        descriptionRef.current?.focus();
+      }
+      // Let default tab behavior handle other cases
     }
   };
   
@@ -277,7 +315,9 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
         start: true, 
         end: true, 
         startParsed: startMsk.time, 
-        endParsed: endMsk.time 
+        endParsed: endMsk.time,
+        dateRangeValid: true,
+        dateRangeError: ''
       });
     } else if (range) {
       const startMsk = utcToMskDateTime(range.start);
@@ -291,7 +331,9 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
         start: true, 
         end: true, 
         startParsed: startMsk.time, 
-        endParsed: endMsk.time 
+        endParsed: endMsk.time,
+        dateRangeValid: true,
+        dateRangeError: ''
       });
     }
   }, [draft, range]);
@@ -394,12 +436,13 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
                 <div>
                   <label className="block text-xs text-zinc-400 mb-1">Start Time (MSK)</label>
                   <input
+                    ref={startTimeRef}
                     type="text"
                     placeholder="e.g. 1050, 10:50"
                     value={startTimeInput}
                     onChange={(e) => handleTimeInputChange(e.target.value, true)}
                     onBlur={() => handleTimeInputBlur(startTimeInput, true)}
-                    onKeyDown={(e) => handleKeyDown(e, 'time')}
+                    onKeyDown={(e) => handleKeyDown(e, 'startTime')}
                     className={`w-full px-2 py-1 bg-zinc-800 border rounded text-white text-sm focus:outline-none focus:border-zinc-400 ${
                       timeValidation.start ? 'border-zinc-600' : 'border-red-500'
                     }`}
@@ -411,12 +454,13 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
                 <div>
                   <label className="block text-xs text-zinc-400 mb-1">End Time (MSK)</label>
                   <input
+                    ref={endTimeRef}
                     type="text"
                     placeholder="e.g. 1150, 11:50"
                     value={endTimeInput}
                     onChange={(e) => handleTimeInputChange(e.target.value, false)}
                     onBlur={() => handleTimeInputBlur(endTimeInput, false)}
-                    onKeyDown={(e) => handleKeyDown(e, 'time')}
+                    onKeyDown={(e) => handleKeyDown(e, 'endTime')}
                     className={`w-full px-2 py-1 bg-zinc-800 border rounded text-white text-sm focus:outline-none focus:border-zinc-400 ${
                       timeValidation.end ? 'border-zinc-600' : 'border-red-500'
                     }`}
@@ -427,9 +471,16 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
                 </div>
               </div>
               
+              {/* Date range validation error */}
+              {!timeValidation.dateRangeValid && timeValidation.dateRangeError && (
+                <div className="text-xs text-red-400 bg-red-900/20 px-2 py-1 rounded">
+                  {timeValidation.dateRangeError}
+                </div>
+              )}
+              
               {/* Cross-midnight indicator */}
               {timeValidation.start && timeValidation.end && timeValidation.startParsed && timeValidation.endParsed && 
-               startDateLocal === endDateLocal && timeValidation.endParsed < timeValidation.startParsed && (
+               startDateLocal === endDateLocal && timeValidation.endParsed < timeValidation.startParsed && timeValidation.dateRangeValid && (
                 <div className="text-xs text-purple-400 bg-purple-900/20 px-2 py-1 rounded">
                   Cross-midnight: {timeValidation.startParsed} → {timeValidation.endParsed} (+1 day)
                 </div>
@@ -440,11 +491,12 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
 
         <div>
           <input
+            ref={titleRef}
             type="text"
             placeholder="Event title..."
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={handleKeyDown}
+            onKeyDown={(e) => handleKeyDown(e, 'title')}
             className="w-full px-3 py-2 bg-zinc-800 border border-zinc-600 rounded text-white placeholder-zinc-400 focus:outline-none focus:border-zinc-400 font-mono"
             autoFocus
           />
@@ -454,12 +506,17 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
           <>
             <div>
               <textarea
+                ref={descriptionRef}
                 placeholder="Description (optional)..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, 'description')}
                 rows={3}
                 className="w-full px-3 py-2 bg-zinc-800 border border-zinc-600 rounded text-white placeholder-zinc-400 focus:outline-none focus:border-zinc-400 resize-none font-mono"
               />
+              <div className="text-xs text-zinc-500 mt-1">
+                Ctrl+Enter to save
+              </div>
             </div>
 
             <div>
@@ -617,7 +674,7 @@ export function Editor({ range, draft, onClose, onCreated, onPatched, onDelete, 
           </button>
           <button
             onClick={handleSave}
-            disabled={!title.trim() || (!isAllDay && (!timeValidation.start || !timeValidation.end))}
+            disabled={!title.trim() || (!isAllDay && (!timeValidation.start || !timeValidation.end || !timeValidation.dateRangeValid))}
             className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 disabled:bg-zinc-800 disabled:text-zinc-500 text-white rounded text-sm"
           >
             {isEditing ? (showReflection ? 'Save & Reflect' : 'Save') : 'Create'}
