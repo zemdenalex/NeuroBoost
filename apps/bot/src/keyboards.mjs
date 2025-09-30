@@ -24,6 +24,51 @@ export function createMainKeyboard() {
   ]);
 }
 
+// === v0.4.x Main menu keyboard ===
+// Provides quick access to new intelligent features like contexts, layers, routines
+// and smart suggestions. This does not replace the older createMainKeyboard to
+// preserve backwards compatibility; instead, index.mjs can import and use
+// createMainKeyboardV04x when running in v0.4.x mode.
+export function createMainKeyboardV04x() {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback('🤖 Smart Suggestions', 'smart_suggestions'),
+      Markup.button.callback('📋 Top Tasks', 'top_tasks')
+    ],
+    [
+      Markup.button.callback('🌍 Contexts', 'contexts_menu'),
+      Markup.button.callback('🔄 Routines', 'routines_menu')
+    ],
+    [
+      Markup.button.callback('🎨 Layers', 'layers_menu'),
+      Markup.button.callback('📅 Calendar', 'calendar_view')
+    ],
+    [
+      Markup.button.callback('📝 Quick Note', 'quick_note'),
+      Markup.button.callback('➕ New Task', 'new_task')
+    ],
+    [
+      Markup.button.callback('📊 Stats', 'stats'),
+      Markup.button.callback('⚙️ Settings', 'settings')
+    ]
+  ]);
+}
+
+// v0.4.x main menu reply keyboard
+// Provides a persistent reply keyboard with top-level actions. Users can tap
+// buttons to trigger commands handled by `bot.hears()` or `bot.command()`.
+// This keyboard should be used for the main menu instead of an inline keyboard
+// to keep buttons visible even when new messages arrive.
+export function createMainReplyKeyboardV04x() {
+  return Markup.keyboard([
+    ['🤖 Smart Suggestions', '📋 Tasks'],
+    ['🌍 Contexts', '🔄 Routines'],
+    ['🎨 Layers', '📅 Calendar'],
+    ['📝 Quick Note', '➕ New Task'],
+    ['📊 Stats', '⚙️ Settings']
+  ]).resize();
+}
+
 // Task priority selection keyboard (existing)
 export function createTaskPriorityKeyboard() {
   return Markup.inlineKeyboard([

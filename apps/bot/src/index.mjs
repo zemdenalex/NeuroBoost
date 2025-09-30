@@ -26,8 +26,24 @@ import {
   createTaskPriorityKeyboard,
   createConfirmKeyboard,
   createWorkDaysKeyboard,
-  createDayViewKeyboard
+  createDayViewKeyboard,
+  createMainKeyboardV04x
 } from './keyboards.mjs';
+
+import { createMainReplyKeyboardV04x } from './keyboards.mjs';
+
+import {
+  handleContextsMenu,
+  handleSetContext,
+  handleLayersMenu,
+  handleToggleLayer,
+  handleRoutinesMenu,
+  handleActivateRoutine,
+  handleTaskTree,
+  handleSmartSuggestions,
+  handleSetEnergyLevel,
+  handleEnergySelection
+} from './v04-handlers.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: resolve(__dirname, '.env') });
@@ -39,7 +55,6 @@ if (!token) {
   logger.error('TELEGRAM_BOT_TOKEN is missing/empty after trim');
   process.exit(1);
 }
-// Optional sanity check (Telegram tokens look like 9-10 digits + colon + ~35 chars)
 if (!/^\d{6,}:[A-Za-z0-9_-]{30,}$/.test(token)) {
   logger.warn('TELEGRAM_BOT_TOKEN format looks unusual');
 }
@@ -47,7 +62,6 @@ const bot = new Telegraf(token);
 const prisma = new PrismaClient();
 const sessions = new SessionManager(prisma);
 
-// API Configuration
 const API_BASE = process.env.API_BASE || 'http://localhost:3001';
 
 logger.info('NeuroBoost Telegram bot initializing', {
@@ -55,7 +69,6 @@ logger.info('NeuroBoost Telegram bot initializing', {
   botToken: process.env.TELEGRAM_BOT_TOKEN ? '***' : 'MISSING'
 });
 
-// Bot error handling
 bot.catch((err, ctx) => {
   logger.error('Bot error', {
     updateType: ctx.updateType,
@@ -65,12 +78,11 @@ bot.catch((err, ctx) => {
     error: err.message
   }, err);
   
-  ctx.reply('❌ Something went wrong. Please try again.', createMainKeyboard()).catch(() => {
+  ctx.reply('❌ Something went wrong. Please try again.', createMainReplyKeyboardV04x()).catch(() => {
     logger.error('Failed to send error message to user', { userId: ctx.from?.id });
   });
 });
 
-// Start command - show main menu
 bot.start(async (ctx) => {
   const user = ctx.from;
   const chatId = ctx.chat.id.toString();
@@ -83,21 +95,21 @@ bot.start(async (ctx) => {
   
   await sessions.clearSession(chatId);
   
-  const welcome = `🧠 *NeuroBoost v0.2.1*\n\nHi ${user.first_name}! Your enhanced calendar-first assistant.\n\n✨ *New Features:*\n• Smart task focus view\n• Month-ahead calendar\n• Quick task-to-event conversion\n• Work hours filtering`;
+  const welcome = `🧠 *NeuroBoost v0.4.x*\n\nHi ${user.first_name}! Your intelligent task management assistant.\n\n✨ *New v0.4.x Features:*\n• 🤖 Smart task suggestions based on energy & context\n• 🌍 Context-aware task filtering (@home, @office, etc.)\n• 🎨 Calendar layers for better organization\n• 🔄 Task routines and templates\n• 🌳 Task dependencies and subtasks\n• ⚡ Energy-based scheduling (1-5 scale)`;
   
   try {
+    const keyboard = createMainReplyKeyboardV04x();
     await ctx.reply(welcome, {
       parse_mode: 'Markdown',
-      ...createMainKeyboard()
+      reply_markup: keyboard.reply_markup
     });
     
-    logger.info('Enhanced start menu shown', { userId: user.id, username: user.username });
+    logger.info('v0.4.x enhanced menu shown', { userId: user.id, username: user.username });
   } catch (error) {
     logger.error('Failed to show enhanced start menu', { userId: user.id, error: error.message }, error);
   }
 });
 
-// Main menu callback
 bot.action('main_menu', async (ctx) => {
   const timer = logger.startTimer('main_menu_action');
   
@@ -107,9 +119,14 @@ bot.action('main_menu', async (ctx) => {
   logger.botInteraction(ctx.from.id, ctx.from.username, 'main_menu');
   
   try {
-    await ctx.editMessageText('🧠 *NeuroBoost* - What would you like to do?', {
+    try {
+      await ctx.deleteMessage();
+    } catch (err) {
+    }
+    const keyboard = createMainReplyKeyboardV04x();
+    await ctx.reply('🧠 *NeuroBoost v0.4.x* - What would you like to do?', {
       parse_mode: 'Markdown',
-      ...createMainKeyboard()
+      reply_markup: keyboard.reply_markup
     });
     
     timer.end();
@@ -119,7 +136,174 @@ bot.action('main_menu', async (ctx) => {
   }
 });
 
-// === QUICK NOTE FLOW ===
+bot.hears('📋 Tasks', async (ctx) => {
+  logger.botInteraction(ctx.from.id, ctx.from.username, 'tasks_text');
+  await renderTasksList(ctx, 0, 'all');
+});
+
+bot.hears('📝 Quick Note', async (ctx) => {
+  const chatId = ctx.chat.id.toString();
+  logger.botInteraction(ctx.from.id, ctx.from.username, 'quick_note_text_start');
+  try {
+    await sessions.setSession(chatId, 'quick_note', {});
+    await ctx.reply(
+      '📝 *Quick Note*\n\nSend me your note. It will be tagged with #quick automatically.\n\n💡 *Tip:* Add your own #tags in the message!',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [ { text: '❌ Cancel', callback_data: 'main_menu' } ]
+          ]
+        }
+      }
+    );
+  } catch (error) {
+    logger.error('Failed to start quick note via text', { userId: ctx.from.id, error: error.message }, error);
+    await ctx.reply('❌ Failed to start quick note. Please try again.', createMainReplyKeyboardV04x());
+  }
+});
+
+bot.hears('➕ New Task', async (ctx) => {
+  const chatId = ctx.chat.id.toString();
+  logger.botInteraction(ctx.from.id, ctx.from.username, 'new_task_text_start');
+  try {
+    await sessions.setSession(chatId, 'new_task', { step: 'title' });
+    await ctx.reply(
+      '📋 *New Task*\n\nWhat\'s the task title?\n\n💡 *Example:* "Review Q4 budget"',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [ { text: '❌ Cancel', callback_data: 'main_menu' } ]
+          ]
+        }
+      }
+    );
+  } catch (error) {
+    logger.error('Failed to start new task via text', { userId: ctx.from.id, error: error.message }, error);
+    await ctx.reply('❌ Failed to start new task. Please try again.', createMainReplyKeyboardV04x());
+  }
+});
+
+bot.hears('📊 Stats', async (ctx) => {
+  logger.botInteraction(ctx.from.id, ctx.from.username, 'stats_text');
+  await showStats(ctx);
+});
+
+const unimplementedButtons = {
+  '🤖 Smart Suggestions': '💡 Smart Suggestions are coming soon! For now, use /tasks to see your tasks.',
+  '🌍 Contexts': '🌍 Context filtering is in development. Use /tasks to see all tasks.',
+  '🔄 Routines': '🔄 Routine management is coming soon!',
+  '🎨 Layers': '🎨 Calendar layers feature is in development.',
+  '📅 Calendar': '📅 Calendar view is coming soon! Use /tasks for now.',
+  '⚙️ Settings': '⚙️ Settings panel is under construction.'
+};
+
+for (const [buttonText, message] of Object.entries(unimplementedButtons)) {
+  bot.hears(buttonText, async (ctx) => {
+    logger.botInteraction(ctx.from.id, ctx.from.username, 'unimplemented_button', { button: buttonText });
+    await ctx.reply(message, createMainReplyKeyboardV04x());
+  });
+}
+
+bot.command('tasks', async (ctx) => {
+  logger.botInteraction(ctx.from.id, ctx.from.username, 'tasks_command');
+  await renderTasksList(ctx, 0, 'all');
+});
+
+bot.command('stats', async (ctx) => {
+  logger.botInteraction(ctx.from.id, ctx.from.username, 'stats_command');
+  await showStats(ctx);
+});
+
+bot.command('note', async (ctx) => {
+  const chatId = ctx.chat.id.toString();
+  logger.botInteraction(ctx.from.id, ctx.from.username, 'note_command');
+  try {
+    await sessions.setSession(chatId, 'quick_note', {});
+    await ctx.reply(
+      '📝 *Quick Note*\n\nSend me your note now.',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [ { text: '❌ Cancel', callback_data: 'main_menu' } ]
+          ]
+        }
+      }
+    );
+  } catch (error) {
+    logger.error('Failed to start /note', { userId: ctx.from.id, error: error.message }, error);
+    await ctx.reply('❌ Failed to start note. Try again.', createMainReplyKeyboardV04x());
+  }
+});
+
+bot.on('text', async (ctx) => {
+  const timer = logger.startTimer('text_message_handler');
+  
+  const chatId = ctx.chat.id.toString();
+  const text = ctx.message.text;
+  const session = await sessions.getSession(chatId);
+  
+  logger.botInteraction(ctx.from.id, ctx.from.username, 'text_message', {
+    textLength: text.length,
+    hasSession: !!session,
+    sessionState: session?.state
+  });
+  
+  if (!session) {
+    logger.debug('No session, starting New Task wizard', { userId: ctx.from.id, textLength: text.length });
+    
+    try {
+      await sessions.setSession(chatId, 'new_task', { title: text.trim(), step: 'priority' });
+      
+      await ctx.reply(
+        `📋 *New Task*\n\n"${text.trim()}"\n\n🎯 What's the priority?`,
+        {
+          parse_mode: 'Markdown',
+          ...createTaskPriorityKeyboard()
+        }
+      );
+      
+      timer.end();
+      return;
+    } catch (error) {
+      logger.error('Failed to start task from free text', { userId: ctx.from.id, error: error.message }, error);
+      await ctx.reply('❌ Failed to create task. Please try /tasks or use the menu.', createMainReplyKeyboardV04x());
+      timer.end();
+      return;
+    }
+  }
+  
+  try {
+    switch (session.state) {
+      case 'quick_note':
+        await handleQuickNoteText(ctx, text);
+        break;
+      
+      case 'new_task':
+        await handleNewTaskText(ctx, text, session);
+        break;
+      
+      case 'new_event':
+        await handleNewEventText(ctx, text, session);
+        break;
+      
+      default:
+        logger.warn('Unknown session state', { userId: ctx.from.id, state: session.state });
+        await ctx.reply('❌ Session expired. Starting over.', createMainReplyKeyboardV04x());
+        await sessions.clearSession(chatId);
+    }
+    
+    timer.end();
+  } catch (error) {
+    logger.error('Failed to handle text in session', { userId: ctx.from.id, sessionState: session.state, error: error.message }, error);
+    await ctx.reply('❌ Something went wrong. Please try again.', createMainReplyKeyboardV04x());
+    await sessions.clearSession(chatId);
+    timer.end();
+  }
+});
+
 bot.action('quick_note', async (ctx) => {
   const timer = logger.startTimer('quick_note_flow');
   
@@ -148,7 +332,6 @@ bot.action('quick_note', async (ctx) => {
   }
 });
 
-// === NEW TASK FLOW ===
 bot.action('new_task', async (ctx) => {
   const timer = logger.startTimer('new_task_flow');
   
@@ -177,7 +360,6 @@ bot.action('new_task', async (ctx) => {
   }
 });
 
-// Task priority selection
 bot.action(/^task_priority_(\d)$/, async (ctx) => {
   const timer = logger.startTimer('task_priority_selection');
   
@@ -193,10 +375,9 @@ bot.action(/^task_priority_(\d)$/, async (ctx) => {
       userId: ctx.from.id, 
       sessionState: session?.state 
     });
-    return ctx.reply('❌ Session expired. Please start over.', createMainKeyboard());
+    return ctx.reply('❌ Session expired. Please start over.', createMainReplyKeyboardV04x());
   }
   
-  // Create the task
   try {
     const taskData = {
       ...session.data,
@@ -242,14 +423,13 @@ bot.action(/^task_priority_(\d)$/, async (ctx) => {
     
     await ctx.editMessageText(
       '❌ Failed to create task. Please try again.',
-      createMainKeyboard()
+      createMainKeyboardV04x()
     );
     
     timer.end();
   }
 });
 
-// === NEW EVENT FLOW ===
 bot.action('new_event', async (ctx) => {
   const timer = logger.startTimer('new_event_flow');
   
@@ -278,7 +458,6 @@ bot.action('new_event', async (ctx) => {
   }
 });
 
-// === PLAN TODAY FLOW ===
 bot.action('plan_today', async (ctx) => {
   const timer = logger.startTimer('plan_today');
   
@@ -287,7 +466,6 @@ bot.action('plan_today', async (ctx) => {
   logger.botInteraction(ctx.from.id, ctx.from.username, 'plan_today');
   
   try {
-    // Get today's events
     const todayStart = DateTime.now().setZone('Europe/Moscow').startOf('day').toUTC().toISO();
     const todayEnd = DateTime.now().setZone('Europe/Moscow').endOf('day').toUTC().toISO();
     
@@ -297,7 +475,6 @@ bot.action('plan_today', async (ctx) => {
     
     const events = eventsResponse || [];
     
-    // Get high-priority tasks
     const apiTimer2 = logger.startTimer('get_tasks_api');
     const tasksResponse = await sendToAPI('GET', '/tasks?status=TODO&priority=2');
     apiTimer2.end();
@@ -358,7 +535,6 @@ bot.action('plan_today', async (ctx) => {
   }
 });
 
-// === STATS FLOW ===
 bot.action('stats', async (ctx) => {
   const timer = logger.startTimer('stats_flow');
   
@@ -418,96 +594,6 @@ bot.action('stats', async (ctx) => {
   }
 });
 
-// === TEXT MESSAGE HANDLERS ===
-bot.on('text', async (ctx) => {
-  const timer = logger.startTimer('text_message_handler');
-  
-  const chatId = ctx.chat.id.toString();
-  const text = ctx.message.text;
-  const session = await sessions.getSession(chatId);
-  
-  logger.botInteraction(ctx.from.id, ctx.from.username, 'text_message', {
-    textLength: text.length,
-    hasSession: !!session,
-    sessionState: session?.state
-  });
-  
-  if (!session) {
-    // No active session - treat as potential quick note
-    if (text.includes('#') || text.length < 100) {
-      // Looks like a quick note
-      logger.debug('Detected potential quick note', {
-        userId: ctx.from.id,
-        textLength: text.length,
-        hasHashtags: text.includes('#')
-      });
-      
-      try {
-        await ctx.reply(
-          '💡 This looks like a quick note! Should I save it?',
-          Markup.inlineKeyboard([
-            [Markup.button.callback('✅ Save as Quick Note', 'save_quick_note')],
-            [Markup.button.callback('❌ Cancel', 'main_menu')]
-          ])
-        );
-        
-        await sessions.setSession(chatId, 'confirm_quick_note', { text });
-        timer.end();
-      } catch (error) {
-        logger.error('Failed to show quick note confirmation', { userId: ctx.from.id, error: error.message }, error);
-        timer.end();
-      }
-    } else {
-      // Show help
-      logger.debug('Showing help for unrecognized text', { userId: ctx.from.id, textLength: text.length });
-      
-      try {
-        await ctx.reply(
-          '🤔 I\'m not sure what to do with that. Use the menu below:',
-          createMainKeyboard()
-        );
-        timer.end();
-      } catch (error) {
-        logger.error('Failed to show help message', { userId: ctx.from.id, error: error.message }, error);
-        timer.end();
-      }
-    }
-    return;
-  }
-  
-  // Handle based on current session state
-  try {
-    switch (session.state) {
-      case 'quick_note':
-        await handleQuickNoteText(ctx, text);
-        break;
-      
-      case 'new_task':
-        await handleNewTaskText(ctx, text, session);
-        break;
-      
-      case 'new_event':
-        await handleNewEventText(ctx, text, session);
-        break;
-      
-      default:
-        logger.warn('Unknown session state', { userId: ctx.from.id, state: session.state });
-        await ctx.reply('❌ Unknown state. Starting over.', createMainKeyboard());
-        await sessions.clearSession(chatId);
-    }
-    
-    timer.end();
-  } catch (error) {
-    logger.error('Failed to handle text message', { 
-      userId: ctx.from.id, 
-      sessionState: session.state,
-      error: error.message 
-    }, error);
-    timer.end();
-  }
-});
-
-// Handle quick note text
 async function handleQuickNoteText(ctx, text) {
   const timer = logger.startTimer('save_quick_note');
   
@@ -537,19 +623,18 @@ async function handleQuickNoteText(ctx, text) {
       `✅ *Quick Note Saved!*\n\n📝 "${text}"\n\n🏷️ Tagged with #quick`,
       {
         parse_mode: 'Markdown',
-        ...createMainKeyboard()
+        ...createMainReplyKeyboardV04x()
       }
     );
     
     timer.end();
   } catch (error) {
     logger.error('Failed to save quick note', { userId: ctx.from.id, error: error.message }, error);
-    await ctx.reply('❌ Failed to save note. Please try again.', createMainKeyboard());
+    await ctx.reply('❌ Failed to save note. Please try again.', createMainReplyKeyboardV04x());
     timer.end();
   }
 }
 
-// Handle new task text input
 async function handleNewTaskText(ctx, text, session) {
   const timer = logger.startTimer('handle_task_text');
   const chatId = ctx.chat.id.toString();
@@ -558,7 +643,6 @@ async function handleNewTaskText(ctx, text, session) {
     logger.debug('Task title received', { userId: ctx.from.id, titleLength: text.length });
     
     try {
-      // Got task title, ask for priority
       await sessions.updateSession(chatId, { 
         title: text.trim(),
         step: 'priority'
@@ -575,12 +659,12 @@ async function handleNewTaskText(ctx, text, session) {
       timer.end();
     } catch (error) {
       logger.error('Failed to handle task title', { userId: ctx.from.id, error: error.message }, error);
+      await ctx.reply('❌ Error processing task. Please try again.', createMainReplyKeyboardV04x());
       timer.end();
     }
   }
 }
 
-// Handle new event text input
 async function handleNewEventText(ctx, text, session) {
   const timer = logger.startTimer('handle_event_text');
   const chatId = ctx.chat.id.toString();
@@ -588,7 +672,6 @@ async function handleNewEventText(ctx, text, session) {
   if (session.data.step === 'title') {
     logger.debug('Event title received', { userId: ctx.from.id, titleLength: text.length });
     
-    // For MVP, create 1-hour event starting in next hour
     const now = DateTime.now().setZone('Europe/Moscow');
     const nextHour = now.plus({ hours: 1 }).startOf('hour');
     const startTime = nextHour.toUTC().toISO();
@@ -635,13 +718,12 @@ async function handleNewEventText(ctx, text, session) {
       timer.end();
     } catch (error) {
       logger.error('Failed to create event via bot', { userId: ctx.from.id, error: error.message }, error);
-      await ctx.reply('❌ Failed to create event. Please try again.', createMainKeyboard());
+      await ctx.reply('❌ Failed to create event. Please try again.', createMainReplyKeyboardV04x());
       timer.end();
     }
   }
 }
 
-// Save quick note confirmation
 bot.action('save_quick_note', async (ctx) => {
   const timer = logger.startTimer('save_quick_note_confirmation');
   
@@ -658,13 +740,12 @@ bot.action('save_quick_note', async (ctx) => {
       userId: ctx.from.id, 
       sessionState: session?.state 
     });
-    await ctx.reply('❌ Session expired.', createMainKeyboard());
+    await ctx.reply('❌ Session expired.', createMainReplyKeyboardV04x());
   }
   
   timer.end();
 });
 
-// Settings placeholder
 bot.action('settings', async (ctx) => {
   await ctx.answerCbQuery();
   
@@ -685,24 +766,18 @@ bot.action('settings', async (ctx) => {
   }
 });
 
-// === ENHANCED ACTION HANDLERS - Add after existing handlers ===
-
-// Today's Focus - Enhanced with work hours filtering
 bot.action('today_focus', async (ctx) => {
   await handleTodaysFocus(ctx, logger, sessions);
 });
 
-// Top Tasks - Interactive task management
 bot.action('top_tasks', async (ctx) => {
   await handleTopTasks(ctx, logger, sessions);
 });
 
-// Calendar View - Month ahead navigation
 bot.action('calendar_view', async (ctx) => {
   await handleCalendarView(ctx, logger, sessions);
 });
 
-// Calendar navigation - Previous/Next month
 bot.action(/^calendar_(prev|next)_(\d{4})_(\d{1,2})$/, async (ctx) => {
   const timer = logger.startTimer('calendar_navigation');
   
@@ -745,7 +820,6 @@ bot.action(/^calendar_(prev|next)_(\d{4})_(\d{1,2})$/, async (ctx) => {
   }
 });
 
-// Calendar day selection
 bot.action(/^calendar_day_(.+)$/, async (ctx) => {
   const timer = logger.startTimer('calendar_day_view');
   
@@ -758,7 +832,6 @@ bot.action(/^calendar_day_(.+)$/, async (ctx) => {
     const date = DateTime.fromISO(dateStr).setZone('Europe/Moscow');
     const today = DateTime.now().setZone('Europe/Moscow');
     
-    // Get events for this day
     const dayStart = date.startOf('day').toUTC().toISO();
     const dayEnd = date.endOf('day').toUTC().toISO();
     
@@ -783,10 +856,9 @@ bot.action(/^calendar_day_(.+)$/, async (ctx) => {
       });
       message += '\n';
     } else {
-      message += '📭 No events scheduled\n\n';
+      message += '🔭 No events scheduled\n\n';
     }
     
-    // Show available time slots if it's today or future
     if (!date.startOf('day').diff(today.startOf('day')).as('days') < 0) {
       message += '💡 *Quick Actions:*\n';
       message += '• Add new event\n';
@@ -807,13 +879,11 @@ bot.action(/^calendar_day_(.+)$/, async (ctx) => {
   }
 });
 
-// Task action menu
 bot.action(/^task_action_(.+)$/, async (ctx) => {
   const taskId = ctx.match[1];
-  await handleTaskAction(ctx, taskId, logger, sessions);
+  await handleTaskActionEnhanced(ctx, taskId, logger, sessions);
 });
 
-// Task scheduling - Quick schedule now
 bot.action(/^task_schedule_(.+)$/, async (ctx) => {
   const timer = logger.startTimer('task_schedule_quick');
   
@@ -838,7 +908,6 @@ bot.action(/^task_schedule_(.+)$/, async (ctx) => {
   }
 });
 
-// Task scheduling - Schedule for later
 bot.action(/^task_schedule_later_(.+)$/, async (ctx) => {
   const timer = logger.startTimer('task_schedule_later');
   
@@ -865,7 +934,6 @@ bot.action(/^task_schedule_later_(.+)$/, async (ctx) => {
   }
 });
 
-// Task to event conversion with duration
 bot.action(/^schedule_task_(.+)_(\d+)$/, async (ctx) => {
   const timer = logger.startTimer('task_to_event_conversion');
   
@@ -879,7 +947,6 @@ bot.action(/^schedule_task_(.+)_(\d+)$/, async (ctx) => {
   });
   
   try {
-    // Get task details
     const response = await sendToAPI('GET', `/tasks`);
     const task = response.tasks?.find(t => t.id === taskId);
     
@@ -888,7 +955,6 @@ bot.action(/^schedule_task_(.+)_(\d+)$/, async (ctx) => {
       return;
     }
     
-    // Create event starting in next available hour
     const now = DateTime.now().setZone('Europe/Moscow');
     const startTime = now.plus({ hours: 1 }).startOf('hour');
     const endTime = startTime.plus({ minutes: durationMinutes });
@@ -909,7 +975,6 @@ bot.action(/^schedule_task_(.+)_(\d+)$/, async (ctx) => {
     
     const eventResult = await sendToAPI('POST', '/events', eventData);
     
-    // Update task status to SCHEDULED
     await sendToAPI('PATCH', `/tasks/${taskId}`, { status: 'SCHEDULED' });
     
     const formattedTime = startTime.toFormat('HH:mm');
@@ -961,7 +1026,6 @@ bot.action(/^schedule_task_(.+)_(\d+)$/, async (ctx) => {
   }
 });
 
-// Task scheduling at specific time
 bot.action(/^schedule_task_(.+)_at_(.+)$/, async (ctx) => {
   const timer = logger.startTimer('task_schedule_at_time');
   
@@ -975,7 +1039,6 @@ bot.action(/^schedule_task_(.+)_at_(.+)$/, async (ctx) => {
   });
   
   try {
-    // Get task details
     const response = await sendToAPI('GET', `/tasks`);
     const task = response.tasks?.find(t => t.id === taskId);
     
@@ -984,7 +1047,6 @@ bot.action(/^schedule_task_(.+)_at_(.+)$/, async (ctx) => {
       return;
     }
     
-    // Use estimated time or default to 1 hour
     const durationMinutes = task.estimatedMinutes || 60;
     const startTime = DateTime.fromISO(timeISO);
     const endTime = startTime.plus({ minutes: durationMinutes });
@@ -1005,7 +1067,6 @@ bot.action(/^schedule_task_(.+)_at_(.+)$/, async (ctx) => {
     
     const eventResult = await sendToAPI('POST', '/events', eventData);
     
-    // Update task status to SCHEDULED
     await sendToAPI('PATCH', `/tasks/${taskId}`, { status: 'SCHEDULED' });
     
     const formattedTime = startTime.toFormat('EEE, MMM d \'at\' HH:mm');
@@ -1053,7 +1114,6 @@ bot.action(/^schedule_task_(.+)_at_(.+)$/, async (ctx) => {
   }
 });
 
-// Mark task as done
 bot.action(/^task_done_(.+)$/, async (ctx) => {
   const timer = logger.startTimer('task_mark_done');
   
@@ -1093,12 +1153,10 @@ bot.action(/^task_done_(.+)$/, async (ctx) => {
   }
 });
 
-// Work hours configuration
 bot.action('work_hours', async (ctx) => {
   await handleWorkHours(ctx, logger, sessions);
 });
 
-// Work hours start time selection
 bot.action(/^workhours_start_(\d+)$/, async (ctx) => {
   const timer = logger.startTimer('workhours_start_config');
   
@@ -1108,7 +1166,6 @@ bot.action(/^workhours_start_(\d+)$/, async (ctx) => {
   logger.botInteraction(ctx.from.id, ctx.from.username, 'workhours_start_config', { startHour });
   
   try {
-    // Store in session for now - in production, save to database
     const chatId = ctx.chat.id.toString();
     let session = await sessions.getSession(chatId);
     
@@ -1120,7 +1177,6 @@ bot.action(/^workhours_start_(\d+)$/, async (ctx) => {
     
     await ctx.answerCbQuery(`✅ Work starts at ${startHour}:00`);
     
-    // Refresh the work hours display
     await handleWorkHours(ctx, logger, sessions);
     
     timer.end();
@@ -1130,7 +1186,6 @@ bot.action(/^workhours_start_(\d+)$/, async (ctx) => {
   }
 });
 
-// Work hours end time selection
 bot.action(/^workhours_end_(\d+)$/, async (ctx) => {
   const timer = logger.startTimer('workhours_end_config');
   
@@ -1151,7 +1206,6 @@ bot.action(/^workhours_end_(\d+)$/, async (ctx) => {
     
     await ctx.answerCbQuery(`✅ Work ends at ${endHour}:00`);
     
-    // Refresh the work hours display
     await handleWorkHours(ctx, logger, sessions);
     
     timer.end();
@@ -1161,12 +1215,478 @@ bot.action(/^workhours_end_(\d+)$/, async (ctx) => {
   }
 });
 
-// No-op handler for display-only buttons
 bot.action('noop', async (ctx) => {
   await ctx.answerCbQuery();
 });
 
-// Health check endpoint for monitoring
+bot.action('contexts_menu', async (ctx) => {
+  await handleContextsMenu(ctx, logger, sessions);
+});
+
+bot.action(/^set_context_(.+)$/, async (ctx) => {
+  const contextName = ctx.match[1];
+  await handleSetContext(ctx, contextName, logger, sessions);
+});
+
+bot.action('tasks_by_context', async (ctx) => {
+  await ctx.answerCbQuery();
+  const chatId = ctx.chat.id.toString();
+  const session = await sessions.getSession(chatId) || {};
+  const currentContext = session.currentContext || '@anywhere';
+  await handleSetContext(ctx, currentContext, logger, sessions);
+});
+
+bot.action('layers_menu', async (ctx) => {
+  await handleLayersMenu(ctx, logger, sessions);
+});
+
+bot.action(/^toggle_layer_(.+)$/, async (ctx) => {
+  const layerId = ctx.match[1];
+  await handleToggleLayer(ctx, layerId, logger);
+});
+
+bot.action('layers_show_all', async (ctx) => {
+  await ctx.answerCbQuery('Showing all layers');
+  const layersResponse = await sendToAPI('GET', '/api/layers');
+  for (const layer of layersResponse.layers || []) {
+    if (!layer.isVisible) {
+      await sendToAPI('PATCH', `/api/layers/${layer.id}/visibility`, { isVisible: true });
+    }
+  }
+  await handleLayersMenu(ctx, logger, sessions);
+});
+
+bot.action('layers_hide_all', async (ctx) => {
+  await ctx.answerCbQuery('Hiding all layers');
+  const layersResponse = await sendToAPI('GET', '/api/layers');
+  for (const layer of layersResponse.layers || []) {
+    if (layer.isVisible) {
+      await sendToAPI('PATCH', `/api/layers/${layer.id}/visibility`, { isVisible: false });
+    }
+  }
+  await handleLayersMenu(ctx, logger, sessions);
+});
+
+bot.action('routines_menu', async (ctx) => {
+  await handleRoutinesMenu(ctx, logger, sessions);
+});
+
+bot.action(/^activate_routine_(.+)$/, async (ctx) => {
+  const routineId = ctx.match[1];
+  await handleActivateRoutine(ctx, routineId, logger);
+});
+
+bot.action('routine_stats', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageText('📊 Routine statistics coming soon!', {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          Markup.button.callback('⬅️ Back', 'routines_menu'),
+          Markup.button.callback('🏠 Main Menu', 'main_menu')
+        ]
+      ]
+    }
+  });
+});
+
+bot.action('manage_routines', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageText('🔧 Routine management coming soon!', {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          Markup.button.callback('⬅️ Back', 'routines_menu'),
+          Markup.button.callback('🏠 Main Menu', 'main_menu')
+        ]
+      ]
+    }
+  });
+});
+
+bot.action(/^view_tree_(.+)$/, async (ctx) => {
+  const taskId = ctx.match[1];
+  await handleTaskTree(ctx, taskId, logger);
+});
+
+bot.action('smart_suggestions', async (ctx) => {
+  await handleSmartSuggestions(ctx, logger, sessions);
+});
+
+bot.action('set_energy_level', async (ctx) => {
+  await handleSetEnergyLevel(ctx, logger, sessions);
+});
+
+bot.action(/^energy_(\d)$/, async (ctx) => {
+  const level = parseInt(ctx.match[1]);
+  await handleEnergySelection(ctx, level, logger, sessions);
+});
+
+bot.action(/^schedule_by_energy_(high|low)$/, async (ctx) => {
+  const energyType = ctx.match[1];
+  await ctx.answerCbQuery(`Scheduling ${energyType} energy tasks`);
+
+  const chatId = ctx.chat.id.toString();
+  const session = await sessions.getSession(chatId) || {};
+  const currentContext = session.currentContext || '@anywhere';
+
+  const tasksResponse = await sendToAPI('GET', `/api/tasks/by-context?context=${encodeURIComponent(currentContext)}`);
+  const tasks = tasksResponse.tasks || [];
+
+  const energyRange = energyType === 'high' ? [4, 5] : [1, 2];
+  const energyTasks = tasks.filter(t => t.energy && energyRange.includes(t.energy));
+
+  if (energyTasks.length === 0) {
+    await ctx.editMessageText(`No ${energyType} energy tasks found in ${currentContext}`, {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            Markup.button.callback('⬅️ Back', `set_context_${currentContext}`),
+            Markup.button.callback('🏠 Main Menu', 'main_menu')
+          ]
+        ]
+      }
+    });
+    return;
+  }
+
+  let message = `⚡ *Schedule ${energyType === 'high' ? 'High' : 'Low'} Energy Tasks*\n\n`;
+  message += `Found ${energyTasks.length} tasks:\n\n`;
+
+  energyTasks.slice(0, 5).forEach((task, index) => {
+    message += `${index + 1}. ${task.title}\n`;
+    if (task.estimatedMinutes) {
+      message += `   ⏱️ ~${task.estimatedMinutes}min\n`;
+    }
+  });
+
+  const buttons = [
+    [
+      Markup.button.callback('⏰ Schedule All Now', `batch_schedule_${energyType}`),
+      Markup.button.callback('📅 Schedule for Tomorrow', `batch_schedule_tomorrow_${energyType}`)
+    ],
+    [
+      Markup.button.callback('⬅️ Back', `set_context_${currentContext}`),
+      Markup.button.callback('🏠 Main Menu', 'main_menu')
+    ]
+  ];
+
+  await ctx.editMessageText(message, {
+    parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: buttons }
+  });
+});
+
+async function handleTaskActionEnhanced(ctx, taskId, logger, sessions) {
+  const timer = logger.startTimer('task_action_enhanced');
+
+  await ctx.answerCbQuery();
+  logger.botInteraction(ctx.from.id, ctx.from.username, 'task_action_enhanced', { taskId });
+
+  try {
+    const response = await sendToAPI('GET', `/tasks`);
+    const task = response.tasks?.find(t => t.id === taskId);
+
+    if (!task) {
+      await ctx.editMessageText('❌ Task not found.', createMainKeyboardV04x());
+      return;
+    }
+
+    const priorityNames = ['Buffer', 'Emergency', 'ASAP', 'Must today', 'Deadline soon', 'If possible'];
+    const priorityEmojiList = ['🧊', '🔥', '⚡', '📌', '⏳', '💡'];
+    const priorityEmoji = priorityEmojiList[task.priority] || '❓';
+
+    let message = `${priorityEmoji} *Task Details*\n\n`;
+    message += `📋 ${task.title}\n`;
+    message += `🎯 Priority: ${task.priority} (${priorityNames[task.priority]})\n`;
+
+    if (task.energy) {
+      message += `⚡ Energy: ${'⚡'.repeat(task.energy)} (${task.energy}/5)\n`;
+    }
+
+    if (task.contexts && task.contexts.length > 0) {
+      message += `🌍 Contexts: ${task.contexts.join(', ')}\n`;
+    }
+
+    if (task.parentTaskId) {
+      message += `🌳 Part of a larger task\n`;
+    }
+
+    if (task.postponeCount > 0) {
+      message += `🔄 Postponed: ${task.postponeCount} times\n`;
+    }
+
+    if (task.progressPercentage > 0) {
+      const filled = Math.floor(task.progressPercentage / 10);
+      const progressBar = '▓'.repeat(filled) + '░'.repeat(10 - filled);
+      message += `📊 Progress: ${progressBar} ${task.progressPercentage}%\n`;
+    }
+
+    if (task.description) {
+      const desc = task.description.length > 100 ? task.description.substring(0, 100) + '...' : task.description;
+      message += `\n💭 ${desc}\n`;
+    }
+
+    if (task.estimatedMinutes) {
+      message += `⏱️ Estimated: ${task.estimatedMinutes} minutes\n`;
+    }
+
+    if (task.dueDate) {
+      const dueDate = DateTime.fromISO(task.dueDate).setZone('Europe/Moscow');
+      message += `📅 Due: ${dueDate.toFormat('MMM d, HH:mm')}\n`;
+    }
+
+    if (task.tags && task.tags.length > 0) {
+      message += `🏷️ ${task.tags.map(tag => '#' + tag).join(' ')}\n`;
+    }
+
+    logger.info('Enhanced task action menu shown', {
+      userId: ctx.from.id,
+      taskId: task.id,
+      priority: task.priority,
+      energy: task.energy,
+      contexts: task.contexts
+    });
+
+    const buttons = [];
+
+    buttons.push([
+      Markup.button.callback('⏰ Schedule Now', `task_schedule_${taskId}`),
+      Markup.button.callback('📅 Schedule Later', `task_schedule_later_${taskId}`)
+    ]);
+
+    buttons.push([
+      Markup.button.callback('✅ Mark Done', `task_done_${taskId}`),
+      Markup.button.callback('✏️ Edit', `task_edit_${taskId}`)
+    ]);
+
+    if (task.parentTaskId || (task.subtasks && task.subtasks.length > 0)) {
+      buttons.push([
+        Markup.button.callback('🌳 View Tree', `view_tree_${taskId}`),
+        Markup.button.callback('📊 Update Progress', `update_progress_${taskId}`)
+      ]);
+    }
+
+    buttons.push([
+      Markup.button.callback('👁️ Hide Today', `task_hide_${taskId}`),
+      Markup.button.callback('🗑️ Delete', `task_delete_${taskId}`)
+    ]);
+
+    buttons.push([
+      Markup.button.callback('⬅️ Back', 'top_tasks'),
+      Markup.button.callback('🏠 Main Menu', 'main_menu')
+    ]);
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: buttons }
+    });
+
+    timer.end();
+  } catch (error) {
+    logger.error('Failed to show enhanced task action', { 
+      userId: ctx.from.id, 
+      taskId, 
+      error: error.message 
+    }, error);
+    await ctx.editMessageText('❌ Failed to load task details.', createMainKeyboardV04x());
+    timer.end();
+  }
+}
+
+async function renderTasksList(ctx, page = 0, filter = 'all') {
+  const timer = logger.startTimer('tasks_list');
+
+  try {
+    const tasksResponse = await sendToAPI('GET', '/tasks?status=TODO');
+    let tasks = tasksResponse.tasks || [];
+
+    if (filter !== 'all') {
+      const pr = parseInt(filter);
+      tasks = tasks.filter(t => t.priority === pr);
+    }
+
+    tasks.sort((a, b) => a.priority - b.priority || (a.createdAt || '').localeCompare(b.createdAt || ''));
+
+    const total = tasks.length;
+    const pageSize = 10;
+    const totalPages = total > 0 ? Math.ceil(total / pageSize) : 1;
+    const currentPage = Math.max(0, Math.min(page, totalPages - 1));
+    const startIndex = currentPage * pageSize;
+    const endIndex = Math.min(startIndex + pageSize, total);
+    const pageTasks = tasks.slice(startIndex, endIndex);
+
+    const priorityNames = ['⚫ Someday', '🔴 Emergency', '🟠 High', '🟡 Medium', '🟢 Low', '⚪ Very Low'];
+    const priorityEmojis = ['⚫', '🔴', '🟠', '🟡', '🟢', '⚪'];
+
+    let message = `📋 *Tasks* (${total} total`;
+    if (filter !== 'all') {
+      message += ` — ${priorityNames[parseInt(filter)]}`;
+    }
+    message += `)\nPage ${currentPage + 1}/${totalPages}\n\n`;
+
+    if (total === 0) {
+      message += '✨ No tasks found!\n';
+    } else {
+      let lastPriority = null;
+      for (const task of pageTasks) {
+        if (task.priority !== lastPriority) {
+          lastPriority = task.priority;
+          const totalInThisPriority = tasks.filter(t => t.priority === task.priority).length;
+          message += `\n${priorityEmojis[task.priority]} *${priorityNames[task.priority]}* (${totalInThisPriority})\n`;
+        }
+        const title = task.title.length > 35 ? task.title.substring(0, 35) + '…' : task.title;
+        message += `• ${title}\n`;
+      }
+    }
+
+    const buttons = [];
+
+    if (pageTasks.length > 0) {
+      for (let i = 0; i < Math.min(5, pageTasks.length); i++) {
+        const task = pageTasks[i];
+        const title = task.title.length > 25 ? task.title.substring(0, 25) + '…' : task.title;
+        buttons.push([
+          { text: `${priorityEmojis[task.priority]} ${title}`, callback_data: `task_action_${task.id}` }
+        ]);
+      }
+    }
+
+    const navRow = [];
+    if (currentPage > 0) {
+      navRow.push({ text: '⬅️ Prev', callback_data: `tasks_page_${currentPage - 1}_${filter}` });
+    }
+    if (endIndex < total) {
+      navRow.push({ text: '➡️ Next', callback_data: `tasks_page_${currentPage + 1}_${filter}` });
+    }
+    if (navRow.length > 0) {
+      buttons.push(navRow);
+    }
+
+    buttons.push([
+      { text: '🎯 Filter', callback_data: 'tasks_filter' },
+      { text: '➕ New Task', callback_data: 'new_task' }
+    ]);
+
+    buttons.push([
+      { text: '🏠 Main Menu', callback_data: 'main_menu' }
+    ]);
+
+    if (ctx.updateType === 'callback_query') {
+      await ctx.editMessageText(message, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: buttons }
+      });
+    } else {
+      await ctx.reply(message, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: buttons }
+      });
+    }
+
+    timer.end();
+  } catch (error) {
+    logger.error('Failed to render tasks list', { userId: ctx.from?.id, error: error.message }, error);
+    if (ctx.updateType === 'callback_query') {
+      await ctx.editMessageText('❌ Failed to load tasks.', {
+        reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] }
+      });
+    } else {
+      await ctx.reply('❌ Failed to load tasks. Please try again.', {
+        reply_markup: createMainReplyKeyboardV04x().reply_markup
+      });
+    }
+    timer.end();
+  }
+}
+
+async function showTasksFilterMenu(ctx) {
+  await ctx.answerCbQuery();
+  const priorityNames = ['⚫ Someday', '🔴 Emergency', '🟠 High', '🟡 Medium', '🟢 Low', '⚪ Very Low'];
+  const filterButtons = [];
+  
+  for (let i = 0; i < 6; i += 2) {
+    const row = [];
+    row.push({ text: priorityNames[i], callback_data: `tasks_filter_${i}` });
+    if (i + 1 < 6) row.push({ text: priorityNames[i + 1], callback_data: `tasks_filter_${i + 1}` });
+    filterButtons.push(row);
+  }
+  
+  filterButtons.push([
+    { text: '📋 All', callback_data: 'tasks_filter_all' },
+    { text: '❌ Cancel', callback_data: 'tasks_page_0_all' }
+  ]);
+
+  await ctx.editMessageText('🎯 *Filter Tasks by Priority*', {
+    parse_mode: 'Markdown',
+    reply_markup: {
+      inline_keyboard: filterButtons
+    }
+  });
+}
+
+bot.action(/^tasks_page_(\d+)_(.+)$/, async (ctx) => {
+  const page = parseInt(ctx.match[1]);
+  const filter = ctx.match[2];
+  await renderTasksList(ctx, page, filter);
+});
+
+bot.action('tasks_filter', async (ctx) => {
+  await showTasksFilterMenu(ctx);
+});
+
+bot.action(/^tasks_filter_(.+)$/, async (ctx) => {
+  const filter = ctx.match[1];
+  await renderTasksList(ctx, 0, filter);
+});
+
+async function showStats(ctx) {
+  const timer = logger.startTimer('stats_flow_text');
+  try {
+    const today = DateTime.now().setZone('Europe/Moscow').toISODate();
+    const apiTimer = logger.startTimer('get_stats_api');
+    const statsResponse = await sendToAPI('GET', `/stats/week?start=${today}`);
+    apiTimer.end();
+    const stats = statsResponse || { plannedMinutes: 0, completedMinutes: 0, adherencePct: 0, eventCount: 0, reflectionCount: 0 };
+    const plannedHours = Math.round(stats.plannedMinutes / 60 * 10) / 10;
+    const completedHours = Math.round(stats.completedMinutes / 60 * 10) / 10;
+    const adherence = stats.adherencePct;
+    let adherenceEmoji = '🔴';
+    if (adherence >= 80) adherenceEmoji = '🟢';
+    else if (adherence >= 60) adherenceEmoji = '🟡';
+    const message = `📊 *Week Stats*\n\n` +
+      `⏱️ *Planned:* ${plannedHours}h\n` +
+      `✅ *Completed:* ${completedHours}h\n` +
+      `${adherenceEmoji} *Adherence:* ${adherence}%\n\n` +
+      `📅 *Events:* ${stats.eventCount}\n` +
+      `💭 *Reflections:* ${stats.reflectionCount}\n\n` +
+      `*Week starts Monday*`;
+    logger.info('Stats shown (text)', {
+      userId: ctx.from.id,
+      plannedHours,
+      completedHours,
+      adherence,
+      eventCount: stats.eventCount
+    });
+    await ctx.reply(message, {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [ { text: '🔄 Refresh', callback_data: 'stats' } ],
+          [ { text: '🏠 Main Menu', callback_data: 'main_menu' } ]
+        ]
+      }
+    });
+    timer.end();
+  } catch (error) {
+    logger.error('Failed to show stats via text', { userId: ctx.from.id, error: error.message }, error);
+    await ctx.reply('❌ Failed to load stats.', {
+      reply_markup: createMainReplyKeyboardV04x().reply_markup
+    });
+    timer.end();
+  }
+}
+
 const port = process.env.BOT_PORT || 3002;
 import { createServer } from 'http';
 
@@ -1195,10 +1715,8 @@ server.listen(port, () => {
   logger.info('Bot health check server started', { port });
 });
 
-// Start periodic cleanup
 startPeriodicCleanup();
 
-// Start bot
 bot.launch().then(() => {
   logger.info('NeuroBoost Telegram bot started successfully', {
     botUsername: bot.botInfo?.username,
@@ -1210,7 +1728,6 @@ bot.launch().then(() => {
   process.exit(1);
 });
 
-// Graceful shutdown
 process.once('SIGINT', () => {
   logger.info('Received SIGINT, shutting down bot gracefully');
   bot.stop('SIGINT');

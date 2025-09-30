@@ -8,6 +8,7 @@ import fs from 'node:fs/promises';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
 import { createLogger } from './logger.mjs';
+import v04xRoutes from './routes/v04x-contexts.mjs';
 
 const logger = createLogger('api');
 const prisma = new PrismaClient();
@@ -39,6 +40,8 @@ app.use(cors({
     cb(null, allow.some(rx => rx.test(origin)));
   }
 }));
+
+app.use(v04xRoutes);
 
 logger.info('CORS configured', { allowedOrigins: 'localhost:51xx' });
 
