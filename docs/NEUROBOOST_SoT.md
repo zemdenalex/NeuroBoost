@@ -81,31 +81,96 @@ NeuroBoost is a calendar‑first personal assistant designed to **push planning,
 
 ### Works
 
-- Week/month rendering; event creation by drag; task creation & priorities; reflection fields; stats; basic bot; DB schema; VPS online (HTTP)
-    
-- **Drag task → calendar (basic)** — creates events linked via `sourceTaskId`; task status updates to `SCHEDULED`.
-    
-- **Event resizing (basic)** — top/bottom resize handles exist with 15‑min snap (needs polish for edge cases).
-    
-- **WeekGrid ghost** — **clipped inside the time grid**, with **start/end time labels**; **edge auto‑scroll** triggers near top/bottom and stops on drop.
-    
+**Calendar (Web UI):**
+
+- Week/month rendering with drag-to-create
+- Event creation by drag; move/resize with 15-min snap
+- Task creation with priorities (0-5)
+- Reflection fields (focus %, goal %, mood 1-10)
+- Drag task → calendar creates events linked via `sourceTaskId`; task status updates to `SCHEDULED`
+- WeekGrid ghost preview clipped inside time grid with start/end time labels
+- Edge auto-scroll triggers near top/bottom; stops on drop
+- Basic stats calculation and display
+
+**Telegram Bot (Restructured v0.3.1):**
+
+- Modular architecture (155-line entry point, clean separation of concerns)
+- Persistent reply keyboard with 10 buttons (🤖 Smart Suggestions, 📋 Tasks, 🌍 Contexts, etc.)
+- Reply keyboard buttons trigger correct handlers (no more falling through to generic text)
+- New Task wizard: free text → priority selection → task creation
+- Quick Note wizard: explicit trigger only (/note or button, no auto-inference)
+- Task list with pagination (10/page), priority grouping, correct emojis (🧊🔥⚡📌⏳💡)
+- Commands functional: /start, /help, /tasks, /note, /stats, /today, /calendar, /contexts, /routines, /cancel
+- Task filtering by priority
+- Stats display (weekly adherence, events, reflections)
+- Session management working (wizards maintain state)
+
+**Backend:**
+
+- PostgreSQL schema stable
+- Prisma migrations working
+- REST API endpoints functional
+- Health check endpoint (/health)
+- Basic logging
+
+**Infrastructure:**
+
+- VPS online (HTTP only)
+- Docker Compose setup
+- PostgreSQL containerized
 
 ### Broken / Missing (must fix in v0.3.x)
 
-- **Manual time input** buggy: free‑typing/backspace issues; cross‑midnight entries misinterpret as all‑day.
-    
-- **Cross‑day timed events** unsupported (22:00 01.01 → 06:00 02.01 (for sleep or other purposes) render & edit flow missing).
-    
-- **Month view (vertical)**: infinite scroll stutter/resets; range highlight should span **start→hover**; auto‑scroll must stop on drop; weekend behavior identical to weekdays.
-    
-- **Task reordering**: drag‑between‑items always re‑sorted by name/ID; reordering triggers full sidebar refresh and loses focus.
-    
-- **Recurring events** not implemented yet.
-    
-- **Security**: HTTPS missing; no health checks; sparse error reporting; validation gaps.
-    
-- **Telegram**: keyboard jumps; too few tasks shown; dedupe of notifications; lack of commands.
-    
+**Calendar (High Priority):**
+
+- **Month view (vertical)**: infinite scroll stutter/resets; range highlight should span start→hover continuously; auto-scroll must stop on drop; weekend behavior identical to weekdays (no visual distinction)
+- **Task reordering**: drag-between-items always re-sorted by name/ID; reordering triggers full sidebar refresh and loses focus
+- **Recurring events** not implemented yet
+
+**Telegram Bot (Medium Priority):**
+
+- **Event display** incomplete: can't view today's schedule or week overview properly
+- **Reminders system** not implemented: no pre-event, start-of-block, or reflection prompts
+- **Work hours configuration** incomplete: can't fully set/save work hours and days
+- **Notification deduplication** missing: could send duplicate reminders
+- **v0.4.x features** are stubs only: contexts, layers, routines, smart suggestions show placeholder messages
+
+**Security (Critical):**
+
+- **HTTPS missing**: all traffic over HTTP, including credentials
+- **No authentication**: anyone with URL can access calendar
+- **Health checks sparse**: no monitoring of service health
+- **Error reporting** minimal: errors fail silently or show generic messages
+- **Input validation** gaps: accepts some invalid inputs
+
+**Technical Debt:**
+
+- Single hardcoded user (no multi-user support yet)
+- No automated tests (manual testing only)
+- Basic error handling (needs improvement)
+- No caching layer
+- No real-time updates (must refresh)
+- Touch support incomplete (mobile drag issues)
+
+### Partially Working (needs polish)
+
+**Event Resizing:**
+
+- Top/bottom resize handles exist
+- 15-min snap working
+- Edge cases need handling (cross-midnight resize, collision detection)
+
+**Task-Event Linking:**
+
+- Basic linking via `sourceTaskId` works
+- Visual indicators incomplete
+- Can't easily unlink or relink
+
+**Bot Keyboards:**
+
+- Reply keyboard works but some contextual inline keyboards need better state management
+- Pagination works but could be smoother
+- Filter menu functional but limited options
 
 ---
 
