@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures/auth'
 import { request as playwrightRequest, type APIRequestContext } from '@playwright/test'
+import { localMidnightUtc } from './fixtures/localTime'
 
 /**
  * Moving an event to another calendar, through the editor a person actually uses.
@@ -74,9 +75,15 @@ test.describe('moving an event between calendars', () => {
 
     // A plain, non-recurring event: the scope dialog is a separate question and
     // a separate spec. This one is about the field reaching the request at all.
+    //
+    // 🔴 TODAY, in the account's own zone. The first version put the event 26
+    // hours out and failed on the mobile project only: at 375px the grid shows
+    // ONE day, so tomorrow's block is not on screen and never becomes findable.
+    // Desktop passed, which is exactly how a viewport-shaped test defect hides.
+    const me = (await (await ctx.get('/api/auth/me')).json()).data
+    const timeZone: string = me.timezone || 'Europe/Moscow'
     const title = `e2e calendar move ${Date.now()}`
-    const start = new Date(Date.now() + 26 * 3600 * 1000)
-    start.setUTCMinutes(0, 0, 0)
+    const start = new Date(localMidnightUtc(timeZone, 0) + 10 * 3600 * 1000)
     const end = new Date(start.getTime() + 3600 * 1000)
 
     const evResp = await ctx.post('/api/events', {
@@ -84,7 +91,7 @@ test.describe('moving an event between calendars', () => {
         title,
         starts_at: start.toISOString(),
         ends_at: end.toISOString(),
-        timezone: 'Europe/Moscow',
+        timezone: timeZone,
       },
     })
     expect(evResp.status()).toBe(201)
@@ -97,8 +104,8 @@ test.describe('moving an event between calendars', () => {
       await ctx.dispose()
     }
 
-    // The event is tomorrow, so the grid may need paging to show it. Reload
-    // onto the week that holds it rather than hunting through the interface.
+    // The event is today, so it is on the first screen in every viewport: the
+    // week on desktop, the single day on mobile.
     await authedPage.goto('/calendar')
     await authedPage.reload()
 
