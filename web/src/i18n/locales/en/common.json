@@ -38,5 +38,8 @@
   "dueDate.tomorrow": "tomorrow",
   "dueDate.inDays": "{{count}}d",
   "dueDate.overdue": "{{count}}d overdue",
-  "task.scheduled": "scheduled"
+  "task.scheduled": "scheduled",
+  "task": {
+    "edit": "Edit task"
+  }
 }

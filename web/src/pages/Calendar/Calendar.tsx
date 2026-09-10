@@ -372,12 +372,28 @@ export function Calendar() {
           timezone={timezone}
           calendarColors={calendarColors}
           headerExtra={
-            <CalendarFilter
-              calendars={calendars}
-              hidden={hiddenCalendars}
-              onToggle={handleToggleCalendar}
-              onCalendarsChanged={setCalendars}
-            />
+            <>
+              {/* 🔴 Creating a task from the calendar used to live ONLY in the
+                  task sidebar's header — and the sidebar is collapsed by
+                  default, so on a first visit it was two clicks behind an
+                  unlabelled vertical strip. Denis's report was "я не нашел
+                  кнопку создания задачи", which is a finding about placement,
+                  not about the feature. */}
+              <button
+                type="button"
+                onClick={handleCreateTask}
+                title={t('newTask')}
+                className="px-2 py-1 text-xs font-mono rounded border border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 whitespace-nowrap"
+              >
+                + {t('taskShort')}
+              </button>
+              <CalendarFilter
+                calendars={calendars}
+                hidden={hiddenCalendars}
+                onToggle={handleToggleCalendar}
+                onCalendarsChanged={setCalendars}
+              />
+            </>
           }
           onCreate={handleCreate}
           onSelect={handleSelect}

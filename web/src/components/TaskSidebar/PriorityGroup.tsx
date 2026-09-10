@@ -66,6 +66,7 @@ export function PriorityGroup({
               selected={selectedId === task.id}
               onSelect={() => onSelectTask(task)}
               onDoubleClick={() => onEditTask(task)}
+              onEdit={() => onEditTask(task)}
               onDragStart={(e) => onDragStart(task, e)}
               onStatusToggle={() => onToggleStatus(task)}
             />

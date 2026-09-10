@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { Pencil } from 'lucide-react';
 import type { Task } from '../../types';
 import { describeDueDate, dueDateColorClass, formatDueDateLabel } from '../../lib/dueDate';
 
@@ -9,6 +10,15 @@ interface TaskItemProps {
   selected: boolean;
   onSelect: () => void;
   onDoubleClick: () => void;
+  /**
+   * 🔴 The same action as onDoubleClick, and it needs its own control.
+   *
+   * Editing a task was reachable ONLY by double-clicking the row. A phone has
+   * no double-click, and on a desktop nothing said the row had one — so Denis
+   * looked for a pencil, found none, and reported the feature missing. It was
+   * not missing; it was unreachable, which for a user is the same thing.
+   */
+  onEdit: () => void;
   onDragStart: (e: React.DragEvent) => void;
   onStatusToggle: () => void;
 }
@@ -19,6 +29,7 @@ export function TaskItem({
   selected,
   onSelect,
   onDoubleClick,
+  onEdit,
   onDragStart,
   onStatusToggle,
 }: TaskItemProps) {
@@ -93,6 +104,22 @@ export function TaskItem({
             </div>
           )}
         </div>
+
+        {/* Edit — the affordance the double-click never had.
+            Always visible on touch, revealed on hover on a pointer device:
+            an opacity-0 control on a phone is a control that does not exist. */}
+        <button
+          type="button"
+          data-testid="task-edit"
+          onClick={(e) => { e.stopPropagation(); onEdit(); }}
+          title={t('task.edit')}
+          aria-label={t('task.edit')}
+          className="flex-shrink-0 p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700
+            opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100
+            focus-visible:opacity-100 transition-opacity"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
 
         {/* Drag handle indicator */}
         <div className="opacity-0 group-hover:opacity-50 text-zinc-500">

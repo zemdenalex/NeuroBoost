@@ -288,7 +288,16 @@ export function useEditorForm(
       console.error('Failed to save event:', error);
       alert(describeSaveError(error));
     }
-  }, [title, validation, tags, reminderOffsets, startDateLocal, endDateLocal, timezone, isAllDay, description, location, color, isEditing, draft, showReflection, reflection, repeatType, repeatEndType, repeatCount, repeatUntil, onPatched, onCreated, withScope]);
+  // 🔴 calendarId is load-bearing and was missing for weeks. Without it
+  // handleSave closed over a stale value, so changing ONLY the calendar
+  // computed calendarChanged = false, deleted the field from the body, and
+  // sent a PATCH the server had nothing to do with — 200, nothing moved. The
+  // same stale false reached the scope dialog, which is why the amber line
+  // never showed and the refused option stayed enabled.
+  //
+  // ⚠ ESLint reported this exact line, by name, on every CI run. Warnings do
+  // not fail the build, so it was counted and never read.
+  }, [title, validation, tags, reminderOffsets, startDateLocal, endDateLocal, timezone, isAllDay, description, location, color, calendarId, isEditing, draft, showReflection, reflection, repeatType, repeatEndType, repeatCount, repeatUntil, onPatched, onCreated, withScope]);
 
   const handleDelete = useCallback(async () => {
     if (!draft || !confirm(`Delete "${draft.title}"?`)) return;
