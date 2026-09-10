@@ -209,7 +209,12 @@ cd web && pnpm test --run                      # сколько тестов н�
     `web/eslint.config.mjs` + скрипт `lint`. Проверено 17.08: `cd web && pnpm lint` даёт
     **0 errors, 4 warnings** (`react-hooks/exhaustive-deps`), а живых `any` в `web/src/` —
     **ноль**: единственное вхождение `: any` лежит внутри комментария в `lib/errorMessage.ts`.
-    ⚠ В CI линт **не** вызывается — проверить: `grep -n "pnpm lint" .github/workflows/ci.yml`.
+    🔴 **«В CI линт не вызывается» — было НЕВЕРНО, исправлено 10.09.** Вызывается,
+    `ci.yml:117`. И это хуже, чем если бы не вызывался: **warning не роняет сборку**, поэтому
+    ESLint печатал `useEditorForm.ts:291 — missing dependency 'calendarId'` на каждом прогоне
+    неделями, а мы считали «4 warnings» и не читали их. Это и был дефект C3 — событие не
+    переносилось в другой календарь. Разбор — `docs/diagnoz-c3-2026-09-10.md`.
+    ⚠ Предупреждение, которое сосчитали, — не предупреждение, которое прочитали.
 
 18. 🔴 **`CREATE TABLE IF NOT EXISTS` в baseline принимает ЧУЖУЮ таблицу и молчит.** Уронило
     прод 18.08 при релизе `v0.4.10`. `000001_baseline` объявляет `reminder` с
