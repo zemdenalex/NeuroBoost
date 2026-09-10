@@ -297,7 +297,7 @@ export function useEditorForm(
   //
   // ⚠ ESLint reported this exact line, by name, on every CI run. Warnings do
   // not fail the build, so it was counted and never read.
-  }, [title, validation, tags, reminderOffsets, startDateLocal, endDateLocal, timezone, isAllDay, description, location, color, calendarId, isEditing, draft, showReflection, reflection, repeatType, repeatEndType, repeatCount, repeatUntil, onPatched, onCreated, withScope]);
+  }, [title, validation, tags, reminderOffsets, startDateLocal, endDateLocal, timezone, isAllDay, description, location, color, isEditing, draft, showReflection, reflection, repeatType, repeatEndType, repeatCount, repeatUntil, onPatched, onCreated, withScope]);
 
   const handleDelete = useCallback(async () => {
     if (!draft || !confirm(`Delete "${draft.title}"?`)) return;
