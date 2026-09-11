@@ -2,7 +2,7 @@
 id: entity-prod-runs-a-build-no-branch-points-at
 title: "ОПРОВЕРГНУТО 11.09: прод стоял ровно на origin/main. Утверждение выросло из локального main, отставшего на 301 коммит"
 type: entity
-status: disproven
+status: verified
 verified_by: session-f4ad9d3d
 verified_at: 2026-08-23
 disproven_at: 2026-09-11
@@ -11,7 +11,6 @@ weight: { importance: 5, connectivity: 9, access: 2, last_accessed: 2026-09-11 }
 sources:
   - file: "docs/proverka-vdvoem-2026-08-19.md"
   - file: "docs/superpowers/specs/2026-08-23-post-walkthrough-fixes-and-release-design.md"
-stakes: high
 links:
   - relates-to: entity-v0410-released-with-an-outage
   - relates-to: learning-merge-to-main-is-the-release

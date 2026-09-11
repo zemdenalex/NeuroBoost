@@ -6,6 +6,7 @@
 - [[decision-safety-wave-before-any-release]] — "Денис 23.08: сначала безопасность (бэкап, ротация, сухой прогон миграций), потом фичи; тач-драг отдельным релизом"
 - [[decision-brainstorm-the-bot-before-building-more]] — "Денис 19.08: сначала спланировать, каким бот должен быть, и только потом строить дальше"
 - [[decision-v0412-focus-is-the-event-window]] — "Денис 11.09: фокус v0.4.12 — модель загрузки, окно ±1 видимого промежутка; десктоп тоже; скелет в колонке; позиция живёт в хуке"
+- [[decision-graph-now-enabled]] — `CLAUDE.md` is being rewritten to reflect that NeuroBoost now maintains a `graph/` directory (same as other ventures: V001, V004). Prior guidance stated deliberately no graph.
 - [[decision-bot-token-rotation-dropped]] — "Денис 10.09: ротацию токена бота не делать — принятый риск, не забытый долг"
 
 ## Learnings
@@ -70,6 +71,7 @@
 - [[entity-p3-sharing-shipped-2026-08-17]] — "Общие календари работают: приглашение по email в приложении, ссылка на 2 часа, уведомление в Telegram с кнопками"
 - [[entity-v0410-released-with-an-outage]] — "v0.4.10 в проде 18.08: 299 коммитов, 7 миграций, два падения деплоя и ~4 минуты простоя"
 - [[entity-e2e-playwright-harness]] — "Визуальная проверка: Playwright в репозитории, два вьюпорта, 6/6 зелёные против staging"
+- [[entity-prod-runs-a-build-no-branch-points-at]] — "ОПРОВЕРГНУТО 11.09: прод стоял ровно на origin/main. Утверждение выросло из локального main, отставшего на 301 коммит"
 - [[entity-bot-runs-on-nl2]] — "Dev-бот живёт на nl-2 (185.214.10.107) и ходит в staging API по HTTPS — доставка доказана 10.08"
 - [[entity-p3-slice2-calendar-crud]] — "P3 срез 2 собран: календари создаются, переименовываются и удаляются — но пока ничего не содержат"
 - [[entity-calendars-hold-events-since-slice2plus]] — "Календарь перестал быть украшением: событие создаётся в выбранном календаре и красится его цветом — проверка доступа на сервере, не в UI"
@@ -91,7 +93,5 @@
 
 ## Proposed (unconfirmed)
 _Auto-captured; not yet trusted. Promote with `promote.py`._
-- [[entity-prod-runs-a-build-no-branch-points-at]] — "ОПРОВЕРГНУТО 11.09: прод стоял ровно на origin/main. Утверждение выросло из локального main, отставшего на 301 коммит"
 - [[memory-split-claude-graph-remember]] — NeuroBoost enforces a three-layer split to prevent drift and duplicate-source-of-truth disease (observed in Archifex per §8-бис).
-- [[decision-graph-now-enabled]] — `CLAUDE.md` is being rewritten to reflect that NeuroBoost now maintains a `graph/` directory (same as other ventures: V001, V004). Prior guidance stated deliberately no graph.
 - [[peer-project-lessons-for-ci-and-testing]] — Five explicit rules extracted from neighbouring projects and documented for NeuroBoost's night-loop work.
