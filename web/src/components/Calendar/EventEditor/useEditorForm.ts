@@ -242,7 +242,11 @@ export function useEditorForm(
     // would therefore turn "edit just this Tuesday" into a 400 for every
     // recurring event, which is a regression the API cannot distinguish from a
     // real move.
-    if (isEditing && draft && (draft.calendarId || '') === calendarId) {
+    const calendarChanged = Boolean(isEditing && draft && (draft.calendarId || '') !== calendarId);
+    // ⚠ Editing only. On CREATE the chosen calendar is the whole point of the
+    // field, and dropping it here would send every new event to the personal
+    // calendar whatever the form showed.
+    if (isEditing && draft && !calendarChanged) {
       delete body.calendarId;
     }
 
@@ -273,7 +277,7 @@ export function useEditorForm(
             // Posting to the synthetic "<uuid>:<date>" id would 500 outright.
             await saveReflection(saved.id, reflectionBody);
           }
-        });
+        }, { calendarChanged });
 
         onPatched();
       } else {
@@ -284,7 +288,16 @@ export function useEditorForm(
       console.error('Failed to save event:', error);
       alert(describeSaveError(error));
     }
-  }, [title, validation, tags, reminderOffsets, startDateLocal, endDateLocal, timezone, isAllDay, description, location, color, isEditing, draft, showReflection, reflection, repeatType, repeatEndType, repeatCount, repeatUntil, onPatched, onCreated, withScope]);
+  // 🔴 calendarId is load-bearing and was missing for weeks. Without it
+  // handleSave closed over a stale value, so changing ONLY the calendar
+  // computed calendarChanged = false, deleted the field from the body, and
+  // sent a PATCH the server had nothing to do with — 200, nothing moved. The
+  // same stale false reached the scope dialog, which is why the amber line
+  // never showed and the refused option stayed enabled.
+  //
+  // ⚠ ESLint reported this exact line, by name, on every CI run. Warnings do
+  // not fail the build, so it was counted and never read.
+  }, [title, validation, tags, reminderOffsets, startDateLocal, endDateLocal, timezone, isAllDay, description, location, color, calendarId, isEditing, draft, showReflection, reflection, repeatType, repeatEndType, repeatCount, repeatUntil, onPatched, onCreated, withScope]);
 
   const handleDelete = useCallback(async () => {
     if (!draft || !confirm(`Delete "${draft.title}"?`)) return;

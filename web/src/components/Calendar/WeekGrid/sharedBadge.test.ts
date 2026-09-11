@@ -93,6 +93,66 @@ describe('an event block shows whether anyone else sees it', () => {
     expect(authorText(shared)).toContain('Настя');
   });
 
+  it('still names the author on a block too short for a time row', () => {
+    // 🔴 HOUR_PX is 44, so a 30-minute event is 22px and a 45-minute one 33px —
+    // both under the `height > 35` gate that draws the time. That gate predates
+    // sharing, and the result was a badge saying "shared" on a block that could
+    // never say by whom. Half an answer, on the commonest block size there is.
+    //
+    // Measured against a real e2e run on 19.08: the badge was visible at 375px
+    // and the author element did not exist at all.
+    const tiny = block({ height: 22, isShared: true, authorName: 'Настя' });
+    expect(testIds(tiny)).toContain('shared-badge');
+    expect(authorText(tiny), 'a 30-minute shared event does not say whose it is').toContain('Настя');
+  });
+
+  it('shrinks a short block so its one line actually fits', () => {
+    // 🔴 Measured on staging before this changed: a 22px block held a title row
+    // running from y=693 to y=713 while the block ended at 710. Three pixels of
+    // every 30-minute event's title were clipped, and had been since the grid
+    // was written — overflow-hidden turned a layout bug into an invisible one.
+    //
+    // 14px text + leading-tight + 8px of vertical padding is 28px of content in
+    // a 22px box. At text-xs with no vertical padding it is about 15px, which
+    // fits with room to spare — enough that Linux and Windows font metrics
+    // cannot disagree about it, which is exactly how this first failed in CI
+    // while passing locally.
+    const classes = (e: ProcessedEvent) =>
+      descendants(render(e))
+        .map((p) => p.className)
+        .filter((v): v is string => typeof v === 'string');
+
+    const tiny = classes(block({ height: 22, isShared: true, authorName: 'Настя' }));
+    expect(tiny.some((c) => c.includes('py-0'))).toBe(true);
+    expect(tiny.some((c) => c.includes('text-xs') && c.includes('font-semibold'))).toBe(true);
+
+    // The tall block keeps what it always had. A change that shrank every block
+    // would pass the two assertions above and be a different, worse product.
+    const roomy = classes(block({ height: 60, isShared: true, authorName: 'Настя' }));
+    expect(roomy.some((c) => c.includes('py-1'))).toBe(true);
+    expect(roomy.some((c) => c.includes('text-sm') && c.includes('font-semibold'))).toBe(true);
+  });
+
+  it('does not print the author twice when both rows could hold it', () => {
+    // The compact branch is exclusive with the time row. Two elements sharing
+    // one testid would make every later assertion here ambiguous, and on screen
+    // it reads as a rendering bug.
+    const roomy = block({ height: 60, isShared: true, authorName: 'Настя' });
+    const ids = testIds(roomy).filter((id) => id === 'event-author');
+    expect(ids).toHaveLength(1);
+
+    const tiny = block({ height: 22, isShared: true, authorName: 'Настя' });
+    expect(testIds(tiny).filter((id) => id === 'event-author')).toHaveLength(1);
+  });
+
+  it('says nothing extra on a short block the viewer wrote themselves', () => {
+    // No author means no compact branch: a shared block of your own keeps only
+    // the badge, exactly as a tall one does.
+    const own = block({ height: 22, isShared: true });
+    expect(testIds(own)).toContain('shared-badge');
+    expect(testIds(own)).not.toContain('event-author');
+  });
+
   it('keeps the author on the time line rather than adding a row', () => {
     // A 40px block shows a title and a time and nothing else. If the author
     // took its own line it would be clipped exactly when the day is busiest.

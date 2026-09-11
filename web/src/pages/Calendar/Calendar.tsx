@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
+import { taskDeepLinkTo } from '../../lib/tasks/taskDeepLink';
 import { ListTodo } from 'lucide-react';
 import { WeekGrid } from '../../components/Calendar/WeekGrid';
 import { TaskSidebar } from '../../components/TaskSidebar';
@@ -8,9 +10,13 @@ import { EventEditor } from '../../components/Calendar/EventEditor';
 import { useRecurringScope } from '../../components/Calendar/useRecurringScope';
 import { useAuthContext } from '../../contexts/AuthContext';
 import { computeWeekRange } from '../../lib/calendar/weekRange';
+import { shouldRefetchOnReturn } from '../../lib/calendar/refetchOnReturn';
 import { createTask } from '../../api';
 import { listCalendars, type Calendar as NbCalendar } from '../../api/calendars';
 import { CalendarFilter } from '../../components/Calendars/CalendarFilter';
+import { CalendarPicker } from '../../components/Calendars/CalendarPicker';
+import { defaultTaskCalendarId } from '../../lib/calendars/defaultTaskCalendar';
+import { errorMessage } from '../../lib/errorMessage';
 import { sortCalendars } from '../../lib/calendars/order';
 import {
   loadHiddenCalendars,
@@ -28,14 +34,28 @@ import {
 } from '../../api';
 import type { NbEvent, Task } from '../../types';
 
+/** Where the last quick-task calendar choice is kept between visits. */
+const QUICK_TASK_CALENDAR_KEY = 'nb-quick-task-calendar';
+
 export function Calendar() {
   const { t } = useTranslation('calendar');
+  const navigate = useNavigate();
   const { user } = useAuthContext();
   const timezone = user?.timezone || 'Europe/Moscow';
   const { withScope, dialog: recurringScopeDialog } = useRecurringScope();
   const [events, setEvents] = useState<NbEvent[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
+  // 🔴 "initial", not "loading". `if (loading)` below returns a spinner INSTEAD
+  // of the entire calendar, so a flag raised on every week change tore the grid
+  // off the screen and rebuilt it from nothing. That is what "очень долгая
+  // загрузка при смене недели" was — the page dismantling itself, not the
+  // network being slow.
+  const [initialLoading, setInitialLoading] = useState(true);
+
+  // When the events on screen were last read. Drives the refetch-on-return
+  // below; a ref rather than state because nothing renders from it and a
+  // re-render per load would be pure noise.
+  const lastLoadedAtRef = useRef(0);
   const [currentWeekOffset, setCurrentWeekOffset] = useState(0);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorRange, setEditorRange] = useState<{ start: Date; end: Date; allDay?: boolean } | null>(null);
@@ -92,6 +112,21 @@ export function Calendar() {
   const [quickTaskOpen, setQuickTaskOpen] = useState(false);
   const [quickTaskTitle, setQuickTaskTitle] = useState('');
 
+  // Which calendar a quick task goes into.
+  //
+  // 🔴 It used to go into none: the request carried { title, priority } and
+  // nothing else, so the API applied its own default and a task created while
+  // looking at a shared week was invisible to the other person. The choice is
+  // now made explicitly, shown on screen, and remembered — see
+  // lib/calendars/defaultTaskCalendar.ts for why "the first one" is not it.
+  const [quickTaskCalendarId, setQuickTaskCalendarId] = useState('');
+
+  useEffect(() => {
+    if (!calendars.length) return;
+    setQuickTaskCalendarId(prev =>
+      prev || defaultTaskCalendarId(calendars, localStorage.getItem(QUICK_TASK_CALENDAR_KEY)));
+  }, [calendars]);
+
   // Calculate week range (Monday-based; Sunday stays in the current week — see computeWeekRange)
   const getWeekRange = useCallback((offset: number) => {
     return computeWeekRange(new Date(), offset);
@@ -118,10 +153,35 @@ export function Calendar() {
     }
   }, []);
 
-  // Initial load
+  // Tasks once. They do not depend on the week, and they used to share an
+  // effect with the events — whose callback identity changes with the week — so
+  // every page of the calendar refetched a list that could not have changed.
+  useEffect(() => { void loadTasks(); }, [loadTasks]);
+
+  // Events on every week change, with the grid left standing.
   useEffect(() => {
-    setLoading(true);
-    Promise.all([loadEvents(), loadTasks()]).finally(() => setLoading(false));
+    let cancelled = false;
+    loadEvents().finally(() => {
+      if (cancelled) return;
+      lastLoadedAtRef.current = Date.now();
+      setInitialLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [loadEvents]);
+
+  // Someone else's change lands when you come back to the tab.
+  //
+  // Denis's decision, 23.08: re-read on return, no realtime. The staleness
+  // threshold lives in shouldRefetchOnReturn — without it, alt-tabbing between
+  // two windows would refetch the week on every switch.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (!shouldRefetchOnReturn(document.visibilityState, lastLoadedAtRef.current, Date.now())) return;
+      lastLoadedAtRef.current = Date.now();
+      void Promise.all([loadEvents(), loadTasks()]);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [loadEvents, loadTasks]);
 
   // Event handlers
@@ -226,13 +286,21 @@ export function Calendar() {
     });
   }, []);
 
+  // 🔴 Both of these were console.log stubs, wired into the desktop sidebar
+  // AND the mobile panel — so tapping a task in the calendar did nothing at
+  // all, and from the outside a stub looks exactly like a slow network. They
+  // were the only two left in src/pages/.
+  //
+  // The tasks page already shows and edits tasks; sending the user there beats
+  // growing a second editor here. Select shows the task in the list, edit opens
+  // it — the distinction the two callbacks already promised.
   const handleSelectTask = useCallback((task: Task) => {
-    console.log('Selected task:', task.id);
-  }, []);
+    navigate(taskDeepLinkTo(task.id, false));
+  }, [navigate]);
 
   const handleEditTask = useCallback((task: Task) => {
-    console.log('Edit task:', task.id);
-  }, []);
+    navigate(taskDeepLinkTo(task.id, true));
+  }, [navigate]);
 
   const handleCreateTask = useCallback(() => {
     setQuickTaskOpen(true);
@@ -240,13 +308,25 @@ export function Calendar() {
 
   const handleQuickTaskSubmit = useCallback(async () => {
     if (!quickTaskTitle.trim()) return;
-    await createTask({ title: quickTaskTitle.trim(), priority: 2 });
+    try {
+      await createTask({
+        title: quickTaskTitle.trim(),
+        priority: 2,
+        calendarId: quickTaskCalendarId || undefined,
+      });
+    } catch (error) {
+      // Saying nothing here would repeat the shape of the defect above: the
+      // task is missing and the interface behaves as though it were saved.
+      alert(errorMessage(error, t('taskCreateFailed')));
+      return;
+    }
+    if (quickTaskCalendarId) localStorage.setItem(QUICK_TASK_CALENDAR_KEY, quickTaskCalendarId);
     await loadTasks();
     setQuickTaskTitle('');
     setQuickTaskOpen(false);
-  }, [quickTaskTitle, loadTasks]);
+  }, [quickTaskTitle, quickTaskCalendarId, loadTasks, t]);
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-black text-zinc-400">
         <div className="text-center">
@@ -292,12 +372,28 @@ export function Calendar() {
           timezone={timezone}
           calendarColors={calendarColors}
           headerExtra={
-            <CalendarFilter
-              calendars={calendars}
-              hidden={hiddenCalendars}
-              onToggle={handleToggleCalendar}
-              onCalendarsChanged={setCalendars}
-            />
+            <>
+              {/* 🔴 Creating a task from the calendar used to live ONLY in the
+                  task sidebar's header — and the sidebar is collapsed by
+                  default, so on a first visit it was two clicks behind an
+                  unlabelled vertical strip. Denis's report was "я не нашел
+                  кнопку создания задачи", which is a finding about placement,
+                  not about the feature. */}
+              <button
+                type="button"
+                onClick={handleCreateTask}
+                title={t('newTask')}
+                className="px-2 py-1 text-xs font-mono rounded border border-zinc-700 bg-zinc-800 text-zinc-200 hover:bg-zinc-700 whitespace-nowrap"
+              >
+                + {t('taskShort')}
+              </button>
+              <CalendarFilter
+                calendars={calendars}
+                hidden={hiddenCalendars}
+                onToggle={handleToggleCalendar}
+                onCalendarsChanged={setCalendars}
+              />
+            </>
           }
           onCreate={handleCreate}
           onSelect={handleSelect}
@@ -375,6 +471,15 @@ export function Calendar() {
               placeholder={t('taskTitlePlaceholder')}
               className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded text-white font-mono text-sm focus:outline-none focus:border-blue-500 mb-3"
             />
+            {/* Renders nothing when there is only one writable calendar — a
+                select with a single option is noise. */}
+            <div className="mb-3">
+              <CalendarPicker
+                id="quick-task-calendar"
+                value={quickTaskCalendarId}
+                onChange={setQuickTaskCalendarId}
+              />
+            </div>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setQuickTaskOpen(false)}

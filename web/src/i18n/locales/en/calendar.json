@@ -12,6 +12,7 @@
   "loading": "Loading...",
   "taskTitlePrompt": "Task title?",
   "newTask": "New Task",
+  "taskCreateFailed": "Could not create the task",
   "taskTitlePlaceholder": "Task title...",
   "cancel": "Cancel",
   "openTasks": "Open tasks",
@@ -74,6 +75,7 @@
     "explain": "This event repeats. Apply the change to just this one, or to every occurrence?",
     "thisEvent": "This event",
     "allEvents": "All events",
+    "calendarSeriesOnly": "Moving to another calendar applies to the whole series.",
     "remember": "Remember my choice",
     "cancel": "Cancel"
   },
@@ -85,5 +87,6 @@
     "manage": "Manage calendars",
     "hideManage": "Hide management",
     "empty": "No calendars yet."
-  }
+  },
+  "taskShort": "Task"
 }

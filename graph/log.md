@@ -688,3 +688,146 @@ e2e **62** в двух проектах · lint 0 errors · миграций **1
 
 **Навыки на следующую сессию:** ничего специального; если релиз — `docs/release-checklist-2026-08-14.md`
 плюс переписанный runbook.
+
+## [2026-08-18] recall | learning-a-mechanism-is-not-a-state, learning-a-test-that-cannot-fail-guards-nothing, learning-merge-to-main-is-the-release, entity-p3-sharing-shipped-2026-08-17, learning-stale-comment-outlived-its-constraint, learning-three-known-defects-were-already-fixed, learning-fixture-data-can-disarm-a-control
+
+## [2026-08-18] Срез 4 P3 сделан, v0.4.10 в проде, прод падал
+
+**Сделано.** Срез 4 целиком: `is_shared` + `author_name` на событиях (вычисляются на чтение,
+per-viewer — колонкой быть не могут), 👥 и автор в сетке в обоих рисующих компонентах, задача
+создаётся в общем календаре, выбор календаря в форме задачи (только при создании — переносить
+задачу API не умеет). Затем **релиз в прод по явному «да» Дениса**: 299 коммитов, миграции
+8 → 15, тег `v0.4.10`, прод-бот пересобран на nl-2.
+
+🔴 **Прод лежал ~4 минуты.** `000010` упала на несуществующей колонке `minutes_before`,
+`dirty = 10`, API в crash-loop. Корень — `CREATE TABLE IF NOT EXISTS` в baseline поверх
+таблицы, существовавшей до системы миграций. Разбор и урок:
+`learning-empty-is-not-the-same-shape` (я посчитал строки вместо колонок и написал вывод,
+который из этого не следовал). Починено: `000016` + `internal/reminders/schema_shape_test.go`,
+проверенный падением.
+
+**Открыто.** Ротация токена бота (только Денис, BotFather) · ночного бэкапа прода нет ·
+`000016` доедет следующим релизом · срез 5 · задачу нельзя перенести между календарями.
+
+**Следующая сессия — фокус задан Денисом:** бот должен уметь то, что умеет веб, и то, что умел
+**сам бот в v0.2.1**. Открывать сначала `docs/analiz-bot-vs-web-2026-08-18.md`, затем
+`.remember/loop-prompt-2026-08-18-bot-parity.md` (готовый промпт лупа, вне git).
+Читать первыми: `learning-a-rewrite-can-drop-features-silently`,
+`learning-empty-is-not-the-same-shape`, `entity-v0410-released-with-an-outage`.
+Вторичный фокус — мобильный веб на 375px.
+
+## [2026-08-18] recall | learning-a-rewrite-can-drop-features-silently, learning-stale-comment-outlived-its-constraint
+
+**Решение Дениса в конце сессии:** месячный календарь в боте — **вернуть**, запись
+`CLAUDE.md` «не планируется» отменена как протухшая (`decision-restore-what-the-rewrite-dropped`).
+Она превратила отсутствие в решение, которого никто не принимал.
+
+🔴 **Ждут его слова 4 предложения в promote-очереди** (старшему 9 дней):
+`decision-graph-now-enabled`, `memory-split-claude-graph-remember`,
+`peer-project-lessons-for-ci-and-testing`, `workitem-p2-notifications-last-mile`.
+Команда: `python .../promote.py <root> --review`, затем `--confirm`/`--drop` по каждому.
+
+## [2026-08-19] ночной луп — паритет бота с v0.2.1 закрыт
+
+**Сделано.** Все четыре возможности, потерянные при переписывании бота на Go, вернулись:
+запланировать задачу на время (`4717eb0`), рабочие часы (`3cfb482`), месячный календарь с
+листанием (`a2f36bf`), Planning (`ce3245e`). Бот больше не отстаёт от собственной версии 0.2.1
+ни в чём. `develop` = 318 коммитов впереди `main`, 16 миграций, e2e 48 passed.
+
+**Найдено попутно — того, чего никто не искал:**
+- `api.ScheduleTask` слал `{start_time, estimated_minutes}` в эндпоинт, декодирующий
+  `{starts_at, ends_at, all_day}`; вызывающих ноль, поэтому дефект был невидим.
+- `🎯 Today` штамповал локальную дату временем UTC — спрашивал 03:00–03:00, верно 21 час из 24.
+- **Рабочие часы не читал никто** (`7df07ee`): три места пишут, читателя нет, а
+  `planning.AvailableHours` захардкожено 40. Настройка была декоративной во всём продукте —
+  `learning-a-setting-with-no-reader`.
+- Блок события в 30 минут обрезал собственный заголовок на 3px с момента написания сетки
+  (`e836303`).
+- `PATCH /api/auth/me` **заменяет весь blob настроек** — доказано разрушением на staging:
+  6 ключей → отправлен 1 → остался 1, HTTP 200. `CLAUDE.md` gotcha 21.
+
+**Дважды ошибся, оба раза дорого:**
+- Список «пяти потерянных возможностей» был построен по клавиатурам v0.2.1, а не по
+  обработчикам; двух потерь не было — `learning-a-button-is-not-a-feature`.
+- Красный e2e объяснял словами дважды и дважды неверно (гонка деплоя → метрики шрифтов);
+  прав оказался только замер — `learning-explain-a-red-test-with-numbers`.
+
+**Открыто, ждёт Дениса:** ротация токена бота (BotFather), ночной бэкап прода, форма
+мобильного календаря (разбор с вариантами и ценой — `docs/razbor-mobilnyy-kalendar-2026-08-19.md`,
+рекомендован вариант A), 4 предложения в promote-очереди.
+
+**Читать первыми в следующей сессии:** `learning-a-button-is-not-a-feature`,
+`learning-a-setting-with-no-reader`, `learning-explain-a-red-test-with-numbers`.
+
+## [2026-08-19] recall | learning-a-rewrite-can-drop-features-silently, decision-restore-what-the-rewrite-dropped, learning-a-test-that-cannot-fail-guards-nothing, learning-e2e-baseline-recorded-on-a-monday, learning-green-because-skipped-proves-nothing, learning-merge-to-main-is-the-release, learning-a-mechanism-is-not-a-state, decision-sharing-shape-and-colour-defaults
+
+## [2026-08-19] продолжение — бота выкатили, дальше проектируем его заново
+
+**Чем кончилась ночь.** Паритет с v0.2.1 закрыт (4 возможности), но Денис прошёл бота руками и
+увидел старое. Причина: **CI бота не выкатывает ни dev, ни прод** — оба на nl-2, руками.
+Выкатил dev вручную (`@NeuroBoost_dev_bot`, `/opt/neuroboost-bot`, старое в `src.bak-2026-08-19`).
+Урок — `learning-green-tests-are-not-a-deployed-bot`, механика — `CLAUDE.md` gotcha 19.
+
+**Что Денис назвал плохим** (`workitem-bot-what-denis-called-bad`): три претензии закрылись
+выкатом, три настоящие и не трогались — заметки становятся задачами, создание задачи убогое,
+меню отсылает к reply-кнопкам вместо действия.
+
+**Решение на следующую сессию** (`decision-brainstorm-the-bot-before-building-more`, его слова):
+сперва **brainstorming** — чем бот должен быть, — затем план, затем реализация. 🔴 Паритет как
+источник требований исчерпан: то, что он ругает, было плохим и в v0.2.1. Требования теперь от
+Дениса, не из `_legacy/`.
+
+**Читать первыми:** `decision-brainstorm-the-bot-before-building-more`,
+`workitem-bot-what-denis-called-bad`, `learning-green-tests-are-not-a-deployed-bot`,
+`learning-a-button-is-not-a-feature`, `learning-a-setting-with-no-reader`.
+
+**Навыки следующей сессии:** `superpowers:brainstorming` (спека в
+`docs/superpowers/specs/`), затем `superpowers:writing-plans`, затем
+`superpowers:subagent-driven-development`.
+
+**Состояние:** `develop` 319+ впереди `main`, 0 незапушенных, CI зелёный, 16 миграций, прод на
+`v0.4.10` — вся ночная работа **не в проде**. Фронт 594 теста, e2e 48 passed, оба Go-модуля
+зелёные (api-go — против настоящей Postgres).
+
+**На Денисе:** ротация токена бота (BotFather) · ночного бэкапа прода нет · форма мобильного
+календаря (`docs/razbor-mobilnyy-kalendar-2026-08-19.md`, рекомендован вариант A) · 4 узла в
+promote-очереди.
+
+## [2026-08-23] recall | learning-a-button-is-not-a-feature, learning-a-test-that-cannot-fail-guards-nothing, learning-stale-comment-outlived-its-constraint, learning-plan-named-two-files-invariant-lived-in-eight, learning-green-tests-are-not-a-deployed-bot, learning-merge-to-main-is-the-release, learning-e2e-baseline-recorded-on-a-monday, learning-explain-a-red-test-with-numbers, learning-fixture-data-can-disarm-a-control, learning-a-setting-with-no-reader, learning-a-rewrite-can-drop-features-silently, entity-bot-deploys-by-hand-not-by-ci, entity-v0410-released-with-an-outage, decision-brainstorm-the-bot-before-building-more, workitem-bot-what-denis-called-bad, learning-green-because-skipped-proves-nothing
+
+## [2026-08-23] continuation
+
+**Сделано.** План навигации бота выполнен целиком — 9 задач субагентами, каждая с ревью и
+показанным красным тестом, плюс волна правок по финальному ревью (2 блокера, 4 significant).
+Dev-бот выкачен на nl-2 и **пройден руками Денисом вдвоём с девушкой** по
+`docs/proverka-vdvoem-2026-08-19.md`.
+
+**Главное, что принёс проход:** прошло почти всё, не прошло семь вещей. Причины найдены и
+перепроверены — кроме C3, которая осталась ведущей гипотезой, и это записано прямо.
+Разбор: `docs/defekty-prohod-vdvoem-2026-08-23.md`. Первоисточник (размеченный Денисом
+чеклист): `ref/feedback/prohod-vdvoem-otvet-denisa-2026-08-23.md`.
+
+**Открыто, следующая сессия.** Спека готова и одобрена по решениям:
+`docs/superpowers/specs/2026-08-23-post-walkthrough-fixes-and-release-design.md`.
+Порядок: волна 0 (без кода — ротация токена, бэкап с восстановлением, сухой прогон 8 миграций
+на копии прод-базы) → срез 1 (C1 свайп, C2a заглушки, C2b calendar_id, C3, C5 refetch,
+C7 мигание недели) → **v0.4.11** → срез 2 (бот: B1 семь экранов без messageID, B2 полное
+inline-меню, релиза прода не требует) → срез 3 (перетаскивание пальцем на pointer events) →
+**v0.4.12**.
+
+🔴 **Читать первыми:** `entity-prod-runs-a-build-no-branch-points-at` (на прод нет git-ссылки,
+откатываться некуда), `decision-safety-wave-before-any-release` (порядок выбрал Денис),
+`learning-a-rule-satisfied-literally-can-keep-the-defect` и
+`learning-the-author-of-a-control-cannot-see-it-cannot-fail` — обе про мои собственные промахи
+этой сессии, обе повторяемы.
+
+⚠ **Не забыть, иначе всплывёт как «дефект» заново:** C4 — Telegram нельзя привязать к
+dev-аккаунту, поэтому «напоминание каждому в свой Telegram» **не проверено, а не провалено**.
+C6 (приглашение из настроек) — функция, вне объёма.
+
+**Числа не переносить.** На 23.08: develop впереди main на 341, миграций 16, восемь не в main,
+последний запушенный тег v0.4.9, v0.4.10 — сирота. Команды в CLAUDE.md §Счётчики.
+
+**Suggested skills for next session:** `superpowers:writing-plans` по спеке выше (срез 1),
+затем `superpowers:subagent-driven-development`. Для C3 и тач-драга — сперва
+`superpowers:systematic-debugging`, воспроизвести на staging до планирования починки.

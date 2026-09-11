@@ -10,6 +10,7 @@ import (
 	"github.com/zemdenalex/neuroboost-bot/internal/api"
 	"github.com/zemdenalex/neuroboost-bot/internal/auth"
 	"github.com/zemdenalex/neuroboost-bot/internal/config"
+	"github.com/zemdenalex/neuroboost-bot/internal/keyboards"
 	"github.com/zemdenalex/neuroboost-bot/internal/logsafe"
 	"github.com/zemdenalex/neuroboost-bot/internal/notifier"
 	"github.com/zemdenalex/neuroboost-bot/internal/state"
@@ -136,30 +137,26 @@ func (h *Handler) HandleMessage(msg *tgbotapi.Message) {
 		case "start", "help":
 			h.handleStart(chatID)
 		default:
-			h.sendText(chatID, "Unknown command. Use /start to see the menu.")
+			h.sendHTMLWithKeyboard(chatID, "Неизвестная команда.", keyboards.HomeInline())
 		}
 		return
 	}
 
 	switch msg.Text {
-	case "🎯 Today":
-		h.handleToday(chatID)
-	case "📋 Tasks":
-		h.handleTasks(chatID)
-	case "📝 Note":
-		h.startNoteFlow(chatID)
-	case "➕ New Task":
-		h.startNewTaskFlow(chatID)
-	case "📅 New Event":
-		h.startNewEventFlow(chatID)
-	case "🗓 Calendar":
-		h.handleCalendar(chatID, time.Now())
-	case "📊 Stats":
-		h.handleStats(chatID)
-	case "⚙️ Settings":
-		h.handleSettings(chatID)
+	case "🏠 Меню":
+		h.handleMenu(chatID, 0)
+	case "🗓 Календарь":
+		h.handleCalendar(chatID, 0, time.Now())
+	case "📅 События":
+		h.handleAgenda(chatID, 0)
+	case "📋 Задачи":
+		h.handleTasks(chatID, 0)
+	case "➕ Создать":
+		h.sendHTMLWithKeyboard(chatID, "Что создаём?", keyboards.CreateMenu())
+	case "⚙️ Настройки":
+		h.handleSettings(chatID, 0)
 	default:
-		h.sendText(chatID, "Use the menu buttons or /start")
+		h.sendHTMLWithKeyboard(chatID, "Не понял. Вот меню:", keyboards.HomeInline())
 	}
 }
 
@@ -206,21 +203,98 @@ func (h *Handler) HandleCallback(cb *tgbotapi.CallbackQuery) {
 
 	switch {
 	case data == "main_menu":
-		h.handleStart(chatID)
+		h.handleMenu(chatID, cb.Message.MessageID)
+	case data == "stats":
+		h.handleStats(chatID, cb.Message.MessageID)
+	case data == "create_menu":
+		h.editOrSend(chatID, cb.Message.MessageID, "Что создаём?", keyboards.CreateMenu())
+	case data == "new_task":
+		h.startNewTaskFlow(chatID)
+	case data == "new_event":
+		h.startNewEventFlow(chatID)
+	case data == "new_note":
+		h.startNoteFlow(chatID)
 	case data == "today_focus":
-		h.handleToday(chatID)
+		h.handleToday(chatID, cb.Message.MessageID)
 	case data == "top_tasks":
-		h.handleTasks(chatID)
+		h.handleTasks(chatID, cb.Message.MessageID)
 	case strings.HasPrefix(data, "task_action_"):
-		h.handleTaskAction(chatID, strings.TrimPrefix(data, "task_action_"))
+		h.handleTaskAction(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "task_action_"))
+	// The three scheduling steps, in the order they fire. They sit above
+	// task_done_/task_delete_ only for readability — every prefix here is
+	// distinct, deliberately: a switch on prefixes where one is a prefix of
+	// another routes by declaration order, which is a rule nobody remembers
+	// when adding the fourth button.
+	case strings.HasPrefix(data, "task_sched_"):
+		h.handleTaskScheduleWhen(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "task_sched_"))
+	case strings.HasPrefix(data, "task_when_"):
+		h.handleTaskScheduleDuration(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "task_when_"))
+	case strings.HasPrefix(data, "task_plan_"):
+		h.handleTaskSchedule(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "task_plan_"))
 	case strings.HasPrefix(data, "task_done_"):
-		h.handleTaskDone(chatID, strings.TrimPrefix(data, "task_done_"))
+		h.handleTaskDone(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "task_done_"))
 	case strings.HasPrefix(data, "task_delete_"):
-		h.handleTaskDelete(chatID, strings.TrimPrefix(data, "task_delete_"))
-	case strings.HasPrefix(data, "priority_"):
-		h.handlePrioritySelect(chatID, data)
+		h.handleTaskDelete(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "task_delete_"))
+	// Срок / Оценка / Теги. The "_set_" variants are the wizard-style screens'
+	// own answer buttons and must be checked before their plain "task_due_" /
+	// "task_est_" prefix — same declaration-order rule as above.
+	case strings.HasPrefix(data, "task_due_set_"):
+		h.handleTaskDueSet(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "task_due_set_"))
+	case strings.HasPrefix(data, "task_due_"):
+		h.handleTaskDueMenu(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "task_due_"))
+	case strings.HasPrefix(data, "task_est_set_"):
+		h.handleTaskEstimateSet(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "task_est_set_"))
+	case strings.HasPrefix(data, "task_est_"):
+		h.handleTaskEstimateMenu(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "task_est_"))
+	case strings.HasPrefix(data, "task_tag_"):
+		h.handleTaskTagsPrompt(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "task_tag_"))
+	// The month grid. Every step of it — paging, opening a day, and going back
+	// to the month — edits the message it was pressed on. cal_back_ used to post
+	// a new one, and the comment that stood here explained why: the day view was
+	// "its own message". The day view edits in place too now, so grid and day
+	// share one message and the exception no longer had anything to protect.
+	case data == "cal_today":
+		h.handleCalendarDay(chatID, cb.Message.MessageID, time.Now().In(h.location()).Format("2006-01-02"))
+	case strings.HasPrefix(data, "cal_new_"):
+		h.startNewEventForDay(chatID, strings.TrimPrefix(data, "cal_new_"))
+	case strings.HasPrefix(data, "cal_prev_"), strings.HasPrefix(data, "cal_next_"):
+		h.handleCalendarNav(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "cal_"))
+	case strings.HasPrefix(data, "cal_day_"):
+		h.handleCalendarDay(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "cal_day_"))
+	case strings.HasPrefix(data, "cal_back_"):
+		h.handleCalendarBack(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "cal_back_"))
+	// The grid's header and weekday cells. Telegram has no inert button, so they
+	// carry "noop" — and it must land somewhere, or every tap on a weekday
+	// header falls through to the default and does nothing visible while the
+	// callback has already been answered above.
+	case data == "noop":
+		return
+	case data == "cal_open":
+		h.handleCalendar(chatID, cb.Message.MessageID, time.Now())
+	case data == "agenda_open":
+		h.handleAgenda(chatID, cb.Message.MessageID)
+	case data == "planning":
+		h.handlePlanning(chatID, cb.Message.MessageID)
+	case data == "settings_menu":
+		h.handleSettings(chatID, cb.Message.MessageID)
+	case data == "settings_workhours":
+		h.handleWorkHours(chatID, cb.Message.MessageID)
+	case strings.HasPrefix(data, "wh_"):
+		h.handleWorkHourSet(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "wh_"))
 	case strings.HasPrefix(data, "when_"):
-		h.handleWhenSelect(chatID, data)
+		h.handleWhenSelect(chatID, cb.Message.MessageID, data)
+	case data == "nt_save":
+		h.handleTaskCardSave(chatID, cb.Message.MessageID)
+	case data == "nt_wizard":
+		h.handleTaskWizardStart(chatID, cb.Message.MessageID)
+	case data == "nt_skip":
+		h.handleTaskWizardSkip(chatID, cb.Message.MessageID)
+	case strings.HasPrefix(data, "nt_p_"):
+		h.handleWizardPriority(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "nt_p_"))
+	case strings.HasPrefix(data, "nt_d_"):
+		h.handleWizardDue(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "nt_d_"))
+	case strings.HasPrefix(data, "nt_e_"):
+		h.handleWizardEstimate(chatID, cb.Message.MessageID, strings.TrimPrefix(data, "nt_e_"))
 	}
 }
 
@@ -256,4 +330,45 @@ func (h *Handler) sendHTMLWithKeyboard(chatID int64, text string, kb tgbotapi.In
 	msg.ParseMode = "HTML"
 	msg.ReplyMarkup = kb
 	h.send(chatID, msg)
+}
+
+// shouldSendNew decides whether a navigation step must post a new message.
+//
+// Pulled out of editOrSend as a pure function on purpose: the method around it
+// cannot run without a bot, a store and a reachable API, and this decision is
+// the only part of it that can be wrong.
+func shouldSendNew(messageID int, editErr error) bool {
+	if messageID == 0 {
+		// The press came from a reply-keyboard button or a command; there is no
+		// message of ours to edit.
+		return true
+	}
+	if editErr == nil {
+		return false
+	}
+	// An identical re-render. Not a failure, and answering it with a fresh
+	// message would double the screen on every second tap.
+	if strings.Contains(editErr.Error(), "message is not modified") {
+		return false
+	}
+	// Anything else — most often a message past Telegram's 48-hour edit window.
+	// Falling back to a new message is the only outcome the user can see.
+	return true
+}
+
+// editOrSend renders a screen onto the message it was triggered from, or posts
+// a new one when there is nothing to edit.
+func (h *Handler) editOrSend(chatID int64, messageID int, text string, kb tgbotapi.InlineKeyboardMarkup) {
+	if messageID != 0 {
+		edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, messageID, text, kb)
+		edit.ParseMode = "HTML"
+		_, err := h.bot.Send(edit)
+		if !shouldSendNew(messageID, err) {
+			return
+		}
+		if err != nil {
+			log.Printf("edit in chat %d fell back to a new message: %s", chatID, logsafe.Redact(err))
+		}
+	}
+	h.sendHTMLWithKeyboard(chatID, text, kb)
 }

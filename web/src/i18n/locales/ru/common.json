@@ -38,5 +38,8 @@
   "dueDate.tomorrow": "завтра",
   "dueDate.inDays": "{{count}} дн",
   "dueDate.overdue": "просрочено {{count}} дн",
-  "task.scheduled": "запланировано"
+  "task.scheduled": "запланировано",
+  "task": {
+    "edit": "Редактировать задачу"
+  }
 }
